@@ -1,0 +1,10 @@
+{
+    "name": "cwm/company-wallet-manager",
+    "description": "A wallet management system for companies, merchants, and employees.",
+    "autoload": {
+        "psr-4": {
+            "CWM\\": "includes/"
+        }
+    },
+    "require": {}
+}
