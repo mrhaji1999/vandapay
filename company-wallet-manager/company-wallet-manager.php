@@ -30,3 +30,15 @@ require_once CWM_PLUGIN_DIR . 'vendor/autoload.php';
  */
 register_activation_hook( __FILE__, array( 'CWM\\Plugin_Loader', 'activate' ) );
 register_deactivation_hook( __FILE__, array( 'CWM\\Plugin_Loader', 'deactivate' ) );
+
+/**
+ * Initialize the settings page
+ */
+if ( is_admin() ) {
+    new CWM\Settings_Page();
+}
+
+/**
+ * Initialize the API handler
+ */
+new CWM\API_Handler();

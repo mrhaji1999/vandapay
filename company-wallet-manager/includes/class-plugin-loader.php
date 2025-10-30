@@ -19,6 +19,11 @@ class Plugin_Loader {
 		// Create custom user roles.
 		Role_Manager::create_roles();
 
+		// Create the logs directory.
+		if ( ! file_exists( CWM_PLUGIN_DIR . 'logs' ) ) {
+			mkdir( CWM_PLUGIN_DIR . 'logs', 0755, true );
+		}
+
 		// Flush rewrite rules.
 		flush_rewrite_rules();
 	}

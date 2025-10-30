@@ -6,5 +6,7 @@
             "CWM\\": "includes/"
         }
     },
-    "require": {}
+    "require": {
+        "firebase/php-jwt": "^6.11"
+    }
 }
