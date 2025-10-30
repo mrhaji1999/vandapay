@@ -42,3 +42,28 @@ if ( is_admin() ) {
  * Initialize the API handler
  */
 new CWM\API_Handler();
+
+/**
+ * Register the shortcode to display the React app.
+ */
+function cwm_register_shortcode() {
+    add_shortcode( 'cwm_dashboard', 'cwm_render_react_app' );
+}
+add_action( 'init', 'cwm_register_shortcode' );
+
+/**
+ * Render the React app.
+ */
+function cwm_render_react_app() {
+    // Enqueue the script.
+    wp_enqueue_script(
+        'cwm-react-app',
+        plugin_dir_url( __FILE__ ) . 'assets/js/ui-bundle.js',
+        array(),
+        '1.0.0',
+        true
+    );
+
+    // Provide a root element for the React app.
+    return '<div id="root"></div>';
+}
