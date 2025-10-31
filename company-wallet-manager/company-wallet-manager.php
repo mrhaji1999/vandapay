@@ -3,7 +3,7 @@
  * Plugin Name:       Company Wallet Manager
  * Plugin URI:        https://example.com/
  * Description:       A 3-level wallet management system for companies, merchants, and employees integrated with WooCommerce.
- * Version:           1.0.2
+ * Version:           1.0.3
  * Author:            Jules
  * Author URI:        https://example.com/
  * License:           GPL-2.0+
@@ -60,8 +60,11 @@ function cwm_plugin_init() {
 		new CWM\Settings_Page();
 	}
 
-	// Initialize the API handler
-	new CWM\API_Handler();
+        // Initialize the CORS manager so external dashboards can reach the REST API.
+        new CWM\CORS_Manager();
+
+        // Initialize the API handler
+        new CWM\API_Handler();
 }
 add_action( 'plugins_loaded', 'cwm_plugin_init' );
 
@@ -83,7 +86,7 @@ function cwm_render_react_app() {
         'cwm-react-app',
         plugin_dir_url( __FILE__ ) . 'assets/js/ui-bundle.js',
         array(),
-        '1.0.2', // Updated version
+        '1.0.3',
         true
     );
 
