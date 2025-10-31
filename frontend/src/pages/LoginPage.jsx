@@ -4,10 +4,17 @@ import { useAuth } from '../context/AuthContext.jsx';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, user, loading } = useAuth();
+  const { login, user, loading, logout } = useAuth();
   const [credentials, setCredentials] = useState({ username: '', password: '' });
+  const [selectedRole, setSelectedRole] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const roleOptions = [
+    { value: 'company', label: 'شرکت' },
+    { value: 'merchant', label: 'پذیرنده' },
+    { value: 'employee', label: 'کارمند' },
+  ];
 
   if (loading) {
     return (
@@ -30,10 +37,21 @@ export default function LoginPage() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+
+    if (!selectedRole) {
+      setError('لطفاً نوع حساب خود را انتخاب کنید.');
+      return;
+    }
+
     setSubmitting(true);
 
     try {
       const user = await login(credentials);
+      if (selectedRole && user?.role && user.role !== selectedRole) {
+        setError('نوع حساب انتخاب‌شده با نقش کاربری شما مطابقت ندارد.');
+        logout();
+        return;
+      }
       const redirectMap = {
         company: '/dashboard/company',
         merchant: '/dashboard/merchant',
@@ -58,6 +76,27 @@ export default function LoginPage() {
       <form className="login-card" onSubmit={handleSubmit}>
         <h1>ورود به سامانه وندا پی</h1>
         <p>نام کاربری و رمز عبور وردپرس خود را وارد کنید.</p>
+        <div className="role-selector" role="radiogroup" aria-label="انتخاب نوع حساب">
+          <span className="role-selector__label">نوع حساب</span>
+          <div className="role-selector__options">
+            {roleOptions.map((role) => (
+              <label
+                key={role.value}
+                className={`role-selector__option${selectedRole === role.value ? ' role-selector__option--active' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="accountRole"
+                  value={role.value}
+                  checked={selectedRole === role.value}
+                  onChange={() => setSelectedRole(role.value)}
+                />
+                <span>{role.label}</span>
+              </label>
+            ))}
+          </div>
+          <p className="role-selector__hint">ابتدا نوع حساب خود را مشخص کنید تا به داشبورد مربوط هدایت شوید.</p>
+        </div>
         <label>
           <span>نام کاربری</span>
           <input
