@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import apiClient from '../lib/apiClient';
 import Table from '../components/Table';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -16,7 +16,7 @@ const MerchantPanel = () => {
     useEffect(() => {
         const fetchBalance = async () => {
             try {
-                const response = await axios.get('/wp-json/cwm/v1/wallet/balance', {
+                const response = await apiClient.get('/wp-json/cwm/v1/wallet/balance', {
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 setBalance(response.data.data.balance);
@@ -46,7 +46,7 @@ const MerchantPanel = () => {
     const handlePaymentRequest = async (e) => {
         e.preventDefault();
         try {
-            await axios.post('/wp-json/cwm/v1/payment/request',
+            await apiClient.post('/wp-json/cwm/v1/payment/request',
                 { national_id: nationalId, amount },
                 { headers: { Authorization: `Bearer ${token}` } }
             );

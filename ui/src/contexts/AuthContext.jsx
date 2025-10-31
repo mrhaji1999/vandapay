@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import apiClient from '../lib/apiClient';
 
 const AuthContext = createContext(null);
 
@@ -24,7 +24,7 @@ export const AuthProvider = ({ children }) => {
 
         try {
             setIsLoading(true);
-            const response = await axios.get('/wp-json/cwm/v1/profile', {
+            const response = await apiClient.get('/wp-json/cwm/v1/profile', {
                 headers: { Authorization: `Bearer ${activeToken}` },
             });
             setUser(response.data.data);
@@ -41,7 +41,7 @@ export const AuthProvider = ({ children }) => {
     const login = async (username, password) => {
         try {
             setIsLoading(true);
-            const response = await axios.post('/wp-json/cwm/v1/token', {
+            const response = await apiClient.post('/wp-json/cwm/v1/token', {
                 username,
                 password,
             });
