@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './pages/LoginPage';
 import CompanyPanel from './pages/CompanyPanel';
@@ -9,15 +9,62 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 // A placeholder for a dashboard component that would handle role-based redirection.
 const Dashboard = () => {
-    const { token } = useAuth();
-    // In a real app, you'd decode the JWT here to get the user's role.
-    // For now, we'll just show a generic dashboard message.
-    // Or, we can default to one of the panels for demonstration.
-    // For example, let's assume the logged-in user is a company for now.
+    const { user, isLoading } = useAuth();
 
-    // This logic should be improved to decode the JWT and get the actual role.
-    // For this example, I'll just render the CompanyPanel as a default.
-    return <CompanyPanel />;
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <p className="text-lg font-medium">Loading your dashboard…</p>
+            </div>
+        );
+    }
+
+    if (!user) {
+        return <Navigate to="/login" replace />;
+    }
+
+    const roles = user.roles || [];
+    const isAdmin = roles.includes('administrator');
+
+    const panelOptions = [
+        { role: 'company', path: '/company', label: 'پنل شرکت' },
+        { role: 'merchant', path: '/merchant', label: 'پنل پذیرنده' },
+        { role: 'employee', path: '/employee', label: 'پنل کارمند' },
+    ].filter(({ role }) => roles.includes(role) || isAdmin);
+
+    if (panelOptions.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-screen">
+                <p className="text-lg font-medium">هیچ پنل فعالی برای نقش شما تعریف نشده است.</p>
+            </div>
+        );
+    }
+
+    if (panelOptions.length === 1) {
+        return <Navigate to={panelOptions[0].path} replace />;
+    }
+
+    return (
+        <div className="flex items-center justify-center min-h-screen bg-gray-100">
+            <div className="w-full max-w-xl p-8 space-y-6 bg-white rounded-lg shadow">
+                <h1 className="text-2xl font-bold text-center">یک پنل را انتخاب کنید</h1>
+                <p className="text-center text-gray-600">
+                    براساس نقش‌های شما می‌توانید هر یک از پنل‌های زیر را مشاهده کنید.
+                </p>
+                <div className="grid gap-4 md:grid-cols-2">
+                    {panelOptions.map(({ path, label }) => (
+                        <Link
+                            key={path}
+                            to={path}
+                            className="block p-4 text-center font-semibold text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+                        >
+                            {label}
+                        </Link>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 function App() {
@@ -37,7 +84,7 @@ function App() {
                     <Route
                         path="/company"
                         element={
-                            <ProtectedRoute>
+                            <ProtectedRoute allowedRoles={['company', 'administrator']}>
                                 <CompanyPanel />
                             </ProtectedRoute>
                         }
@@ -45,7 +92,7 @@ function App() {
                      <Route
                         path="/merchant"
                         element={
-                            <ProtectedRoute>
+                            <ProtectedRoute allowedRoles={['merchant', 'administrator']}>
                                 <MerchantPanel />
                             </ProtectedRoute>
                         }
@@ -53,7 +100,7 @@ function App() {
                      <Route
                         path="/employee"
                         element={
-                            <ProtectedRoute>
+                            <ProtectedRoute allowedRoles={['employee', 'administrator']}>
                                 <EmployeePanel />
                             </ProtectedRoute>
                         }
