@@ -3,7 +3,7 @@
  * Plugin Name:       Company Wallet Manager
  * Plugin URI:        https://example.com/
  * Description:       A 3-level wallet management system for companies, merchants, and employees integrated with WooCommerce.
- * Version:           1.0.1
+ * Version:           1.0.2
  * Author:            Jules
  * Author URI:        https://example.com/
  * License:           GPL-2.0+
@@ -26,10 +26,27 @@ define( 'CWM_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 require_once CWM_PLUGIN_DIR . 'vendor/autoload.php';
 
 /**
- * Register the activation and deactivation hooks.
+ * The callback function for plugin activation.
+ *
+ * This function calls the activate method on the Plugin_Loader class.
+ * Using a wrapper function prevents a fatal error if the class is not found.
  */
-register_activation_hook( __FILE__, array( 'CWM\\Plugin_Loader', 'activate' ) );
-register_deactivation_hook( __FILE__, array( 'CWM\\Plugin_Loader', 'deactivate' ) );
+function cwm_activate_plugin() {
+    CWM\Plugin_Loader::activate();
+}
+
+/**
+ * The callback function for plugin deactivation.
+ *
+ * This function calls the deactivate method on the Plugin_Loader class.
+ */
+function cwm_deactivate_plugin() {
+    CWM\Plugin_Loader::deactivate();
+}
+
+register_activation_hook( __FILE__, 'cwm_activate_plugin' );
+register_deactivation_hook( __FILE__, 'cwm_deactivate_plugin' );
+
 
 /**
  * Initialize the plugin.
@@ -66,7 +83,7 @@ function cwm_render_react_app() {
         'cwm-react-app',
         plugin_dir_url( __FILE__ ) . 'assets/js/ui-bundle.js',
         array(),
-        '1.0.1', // Updated version
+        '1.0.2', // Updated version
         true
     );
 
