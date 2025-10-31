@@ -27,7 +27,8 @@ export const login = async (credentials) => {
     user: {
       id: data.user_id,
       name: data.user_display_name,
-      role: data.user_role,
+      role: data.user_role || data.role || data.roles?.[0] || null,
+      roles: data.roles,
     },
   };
 };

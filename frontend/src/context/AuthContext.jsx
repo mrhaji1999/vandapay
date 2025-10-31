@@ -5,6 +5,19 @@ const AuthContext = createContext();
 
 const TOKEN_STORAGE_KEY = 'vandapay_token';
 
+const normalizeUser = (rawUser) => {
+  if (!rawUser) return null;
+
+  const normalizedRole = rawUser.role || rawUser.roles?.[0] || rawUser.primary_role || null;
+
+  return {
+    id: rawUser.id ?? rawUser.user_id ?? null,
+    name: rawUser.name ?? rawUser.display_name ?? rawUser.user_display_name ?? '',
+    role: normalizedRole,
+    ...rawUser,
+  };
+};
+
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY));
   const [user, setUser] = useState(null);
@@ -19,7 +32,7 @@ export function AuthProvider({ children }) {
 
       try {
         const profile = await getCurrentUser();
-        setUser(profile);
+        setUser(normalizeUser(profile));
       } catch (error) {
         console.error('Failed to load user', error);
         logout();
@@ -32,9 +45,24 @@ export function AuthProvider({ children }) {
   }, [token]);
 
   const login = async (credentials) => {
-    const { token: jwt, user: profile } = await loginRequest(credentials);
+    const { token: jwt, user: loginUser } = await loginRequest(credentials);
     localStorage.setItem(TOKEN_STORAGE_KEY, jwt);
     setToken(jwt);
+
+    let profile = normalizeUser(loginUser);
+
+    try {
+      const freshProfile = await getCurrentUser();
+      profile = normalizeUser({ ...profile, ...freshProfile }) ?? profile;
+    } catch (error) {
+      if (!profile) {
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+        setToken(null);
+        throw error;
+      }
+      console.warn('Falling back to login payload for user profile', error);
+    }
+
     setUser(profile);
     return profile;
   };
