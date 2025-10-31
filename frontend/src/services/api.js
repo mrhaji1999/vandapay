@@ -1,12 +1,18 @@
 import axios from 'axios';
 
-const normalizeBaseUrl = (url) => {
-  if (!url) return '';
-  return url.endsWith('/') ? url.slice(0, -1) : url;
+const normalizeBaseUrl = (url, fallbackPath) => {
+  if (!url) {
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}${fallbackPath}`;
+    }
+    return fallbackPath;
+  }
+  const trimmed = url.endsWith('/') ? url.slice(0, -1) : url;
+  return trimmed;
 };
 
-const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL) || '/wp-json/cwm/v1';
-const AUTH_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_AUTH_BASE_URL) || '/wp-json/jwt-auth/v1';
+const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL, '/wp-json/cwm/v1');
+const AUTH_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_AUTH_BASE_URL, '/wp-json/jwt-auth/v1');
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,

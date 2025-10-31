@@ -41,7 +41,13 @@ export default function LoginPage() {
       };
       navigate(redirectMap[user.role] || '/dashboard/company');
     } catch (err) {
-      setError('ورود ناموفق بود. لطفا اطلاعات را بررسی کنید.');
+      if (err?.response?.data?.message) {
+        setError(err.response.data.message);
+      } else if (err?.message === 'Network Error') {
+        setError('ارتباط با سرور برقرار نشد. لطفاً تنظیمات دسترسی و CORS را بررسی کنید.');
+      } else {
+        setError('ورود ناموفق بود. لطفا اطلاعات را بررسی کنید.');
+      }
     } finally {
       setSubmitting(false);
     }
