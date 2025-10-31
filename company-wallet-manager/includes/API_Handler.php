@@ -21,6 +21,74 @@ class API_Handler {
      */
     public function __construct() {
         add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+        add_action( 'rest_api_init', array( $this, 'configure_cors_support' ), 15 );
+    }
+
+    /**
+     * Configure CORS headers for the plugin's REST namespace.
+     */
+    public function configure_cors_support() {
+        add_filter( 'rest_pre_serve_request', array( $this, 'send_cors_headers' ), 0, 4 );
+    }
+
+    /**
+     * Send CORS headers for requests hitting the plugin namespace.
+     *
+     * @param bool                   $served  Whether the request has already been served.
+     * @param \WP_HTTP_Response      $result  Result to send to the client. Usually a \WP_REST_Response.
+     * @param \WP_REST_Request       $request The request object.
+     * @param \WP_REST_Server        $server  Server instance.
+     *
+     * @return bool
+     */
+    public function send_cors_headers( $served, $result, $request, $server ) {
+        unset( $result, $server );
+
+        $route = $request->get_route();
+
+        if ( 0 !== strpos( $route, '/' . $this->namespace ) ) {
+            return $served;
+        }
+
+        $origin           = get_http_origin();
+        $allowed_origins  = $this->get_allowed_cors_origins();
+        $sanitized_origin = $origin && in_array( $origin, $allowed_origins, true ) ? esc_url_raw( $origin ) : esc_url_raw( get_site_url() );
+
+        header( 'Access-Control-Allow-Origin: ' . $sanitized_origin );
+        header( 'Access-Control-Allow-Methods: GET, POST, OPTIONS' );
+        header( 'Access-Control-Allow-Credentials: true' );
+        header( 'Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce' );
+
+        if ( 'OPTIONS' === $request->get_method() ) {
+            status_header( 200 );
+            return true;
+        }
+
+        return $served;
+    }
+
+    /**
+     * Return the list of allowed CORS origins.
+     *
+     * @return array
+     */
+    protected function get_allowed_cors_origins() {
+        $origins = array( get_site_url() );
+
+        /**
+         * Filter the allowed CORS origins for Company Wallet Manager REST requests.
+         *
+         * @since 1.0.0
+         *
+         * @param string[] $origins Array of allowed origins.
+         */
+        $filtered = apply_filters( 'cwm_allowed_cors_origins', $origins );
+
+        if ( ! is_array( $filtered ) ) {
+            return $origins;
+        }
+
+        return array_values( array_unique( array_filter( array_map( 'esc_url_raw', $filtered ) ) ) );
     }
 
     /**
@@ -89,6 +157,15 @@ class API_Handler {
             array(
                 'methods'             => 'GET',
                 'callback'            => array( $this, 'get_wallet_balance' ),
+                'permission_callback' => array( $this, 'any_authenticated_user_permission_check' ),
+            ),
+        ) );
+
+        // Register the authenticated user's profile route.
+        register_rest_route( $this->namespace, '/profile', array(
+            array(
+                'methods'             => 'GET',
+                'callback'            => array( $this, 'get_profile' ),
                 'permission_callback' => array( $this, 'any_authenticated_user_permission_check' ),
             ),
         ) );
@@ -302,6 +379,33 @@ class API_Handler {
         $token = \Firebase\JWT\JWT::encode( $payload, JWT_AUTH_SECRET_KEY, 'HS256' );
 
         return new \WP_REST_Response( array( 'token' => $token ), 200 );
+    }
+
+    /**
+     * Return profile data for the authenticated user.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_profile( $request ) {
+        if ( is_wp_error( $this->validate_token( $request ) ) ) {
+            return new \WP_Error( 'jwt_auth_invalid_token', 'Invalid token provided.', array( 'status' => 403 ) );
+        }
+
+        $user = wp_get_current_user();
+
+        if ( ! $user || 0 === $user->ID ) {
+            return new \WP_Error( 'rest_user_invalid', 'Authenticated user could not be determined.', array( 'status' => 404 ) );
+        }
+
+        $data = array(
+            'id'           => $user->ID,
+            'email'        => $user->user_email,
+            'display_name' => $user->display_name,
+            'roles'        => $user->roles,
+        );
+
+        return new \WP_REST_Response( array( 'status' => 'success', 'data' => $data ), 200 );
     }
 
     /**
