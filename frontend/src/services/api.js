@@ -40,7 +40,7 @@ export const login = async (credentials) => {
 };
 
 export const getCurrentUser = async () => {
-  const { data } = await apiClient.get('/me');
+  const { data } = await apiClient.get('/profile');
   return data;
 };
 

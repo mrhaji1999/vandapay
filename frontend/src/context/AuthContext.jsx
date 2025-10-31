@@ -4,6 +4,7 @@ import { login as loginRequest, getCurrentUser } from '../services/api.js';
 const AuthContext = createContext();
 
 const TOKEN_STORAGE_KEY = 'vandapay_token';
+const USER_STORAGE_KEY = 'vandapay_user';
 
 const normalizeUser = (rawUser) => {
   if (!rawUser) return null;
@@ -19,8 +20,26 @@ const normalizeUser = (rawUser) => {
 };
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY));
-  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(() => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  });
+  const [user, setUser] = useState(() => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    try {
+      const stored = localStorage.getItem(USER_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.warn('Failed to parse stored user profile', error);
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,10 +51,19 @@ export function AuthProvider({ children }) {
 
       try {
         const profile = await getCurrentUser();
-        setUser(normalizeUser(profile));
+        const normalized = normalizeUser(profile);
+        if (normalized) {
+          setUser(normalized);
+        }
       } catch (error) {
-        console.error('Failed to load user', error);
-        logout();
+        const status = error?.response?.status;
+
+        if (status === 401 || status === 403) {
+          console.error('Failed to load user', error);
+          logout();
+        } else {
+          console.warn('Continuing with cached user profile', error);
+        }
       } finally {
         setLoading(false);
       }
@@ -69,9 +97,23 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(USER_STORAGE_KEY);
     setToken(null);
     setUser(null);
   };
+
+  useEffect(() => {
+    if (!user) {
+      localStorage.removeItem(USER_STORAGE_KEY);
+      return;
+    }
+
+    try {
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+    } catch (error) {
+      console.warn('Failed to persist user profile', error);
+    }
+  }, [user]);
 
   const value = useMemo(
     () => ({
