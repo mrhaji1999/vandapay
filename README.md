@@ -13,29 +13,14 @@ The UI uses the WordPress REST API that is exposed by the Company Wallet Manager
 
    Rebuild the UI (`npm run build`) so that production assets send API requests to the correct host.
 
-2. **Allow the new origin in WordPress** – add the panel origin to the plugin's CORS allow-list by dropping the snippet below in `wp-content/mu-plugins/cwm-cors.php` (create the folder/file if it does not exist) or inside your theme's `functions.php`:
+2. **Allow the new origin in WordPress** – starting from plugin version 1.0.3 you can whitelist dashboard hosts by defining the constant `CWM_ALLOWED_CORS_ORIGINS` in `wp-config.php` (a comma-separated string or PHP array). For example:
 
    ```php
-   <?php
-   add_action( 'rest_api_init', function () {
-       remove_filter( 'rest_pre_serve_request', 'rest_send_cors_headers' );
-       add_filter( 'rest_pre_serve_request', function ( $value ) {
-           header( 'Access-Control-Allow-Origin: https://panel.vandapay.com' );
-           header( 'Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS' );
-           header( 'Access-Control-Allow-Credentials: true' );
-           header( 'Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce' );
-           return $value;
-       } );
-   }, 15 );
-  ```
-
-   If you are using the official JWT authentication plugin, also ensure the constant below is defined in `wp-config.php` to let the token endpoint answer cross-domain requests:
-
-   ```php
+   define( 'CWM_ALLOWED_CORS_ORIGINS', 'https://panel.vandapay.com' );
    define( 'JWT_AUTH_CORS_ENABLE', true );
    ```
 
-   Flush any caching layer so the new headers are returned immediately.
+   The plugin will now answer REST and JWT requests coming from `panel.vandapay.com` with the correct `Access-Control-Allow-*` headers, including OPTIONS preflight checks. Flush any caching layer so the new headers are returned immediately.
 
 Once these steps are in place, the panel hosted on `panel.vandapay.com` can securely talk to the WordPress plugin on `mr.vandapay.com` via JWT-authenticated REST requests.
 
