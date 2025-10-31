@@ -93,6 +93,15 @@ class API_Handler {
             ),
         ) );
 
+        // Register the authenticated user's profile route.
+        register_rest_route( $this->namespace, '/profile', array(
+            array(
+                'methods'             => 'GET',
+                'callback'            => array( $this, 'get_profile' ),
+                'permission_callback' => array( $this, 'any_authenticated_user_permission_check' ),
+            ),
+        ) );
+
         // Register the wallet charge route.
         register_rest_route( $this->namespace, '/wallet/charge', array(
             array(
@@ -302,6 +311,33 @@ class API_Handler {
         $token = \Firebase\JWT\JWT::encode( $payload, JWT_AUTH_SECRET_KEY, 'HS256' );
 
         return new \WP_REST_Response( array( 'token' => $token ), 200 );
+    }
+
+    /**
+     * Return profile data for the authenticated user.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_profile( $request ) {
+        if ( is_wp_error( $this->validate_token( $request ) ) ) {
+            return new \WP_Error( 'jwt_auth_invalid_token', 'Invalid token provided.', array( 'status' => 403 ) );
+        }
+
+        $user = wp_get_current_user();
+
+        if ( ! $user || 0 === $user->ID ) {
+            return new \WP_Error( 'rest_user_invalid', 'Authenticated user could not be determined.', array( 'status' => 404 ) );
+        }
+
+        $data = array(
+            'id'           => $user->ID,
+            'email'        => $user->user_email,
+            'display_name' => $user->display_name,
+            'roles'        => $user->roles,
+        );
+
+        return new \WP_REST_Response( array( 'status' => 'success', 'data' => $data ), 200 );
     }
 
     /**
