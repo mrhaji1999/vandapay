@@ -21,6 +21,74 @@ class API_Handler {
      */
     public function __construct() {
         add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+        add_action( 'rest_api_init', array( $this, 'configure_cors_support' ), 15 );
+    }
+
+    /**
+     * Configure CORS headers for the plugin's REST namespace.
+     */
+    public function configure_cors_support() {
+        add_filter( 'rest_pre_serve_request', array( $this, 'send_cors_headers' ), 0, 4 );
+    }
+
+    /**
+     * Send CORS headers for requests hitting the plugin namespace.
+     *
+     * @param bool                   $served  Whether the request has already been served.
+     * @param \WP_HTTP_Response      $result  Result to send to the client. Usually a \WP_REST_Response.
+     * @param \WP_REST_Request       $request The request object.
+     * @param \WP_REST_Server        $server  Server instance.
+     *
+     * @return bool
+     */
+    public function send_cors_headers( $served, $result, $request, $server ) {
+        unset( $result, $server );
+
+        $route = $request->get_route();
+
+        if ( 0 !== strpos( $route, '/' . $this->namespace ) ) {
+            return $served;
+        }
+
+        $origin           = get_http_origin();
+        $allowed_origins  = $this->get_allowed_cors_origins();
+        $sanitized_origin = $origin && in_array( $origin, $allowed_origins, true ) ? esc_url_raw( $origin ) : esc_url_raw( get_site_url() );
+
+        header( 'Access-Control-Allow-Origin: ' . $sanitized_origin );
+        header( 'Access-Control-Allow-Methods: GET, POST, OPTIONS' );
+        header( 'Access-Control-Allow-Credentials: true' );
+        header( 'Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce' );
+
+        if ( 'OPTIONS' === $request->get_method() ) {
+            status_header( 200 );
+            return true;
+        }
+
+        return $served;
+    }
+
+    /**
+     * Return the list of allowed CORS origins.
+     *
+     * @return array
+     */
+    protected function get_allowed_cors_origins() {
+        $origins = array( get_site_url() );
+
+        /**
+         * Filter the allowed CORS origins for Company Wallet Manager REST requests.
+         *
+         * @since 1.0.0
+         *
+         * @param string[] $origins Array of allowed origins.
+         */
+        $filtered = apply_filters( 'cwm_allowed_cors_origins', $origins );
+
+        if ( ! is_array( $filtered ) ) {
+            return $origins;
+        }
+
+        return array_values( array_unique( array_filter( array_map( 'esc_url_raw', $filtered ) ) ) );
     }
 
     /**
