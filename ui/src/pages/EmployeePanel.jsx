@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import apiClient from '../lib/apiClient';
 import Table from '../components/Table';
 import Button from '../components/Button';
 import Input from '../components/Input';
@@ -15,7 +15,7 @@ const EmployeePanel = () => {
     useEffect(() => {
         const fetchBalance = async () => {
             try {
-                const response = await axios.get('/wp-json/cwm/v1/wallet/balance', {
+                const response = await apiClient.get('/wp-json/cwm/v1/wallet/balance', {
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 setBalance(response.data.data.balance);
@@ -59,7 +59,7 @@ const EmployeePanel = () => {
         }
 
         try {
-            await axios.post('/wp-json/cwm/v1/payment/confirm',
+            await apiClient.post('/wp-json/cwm/v1/payment/confirm',
                 { request_id: requestId, otp_code },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
