@@ -6,7 +6,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { login, user, loading } = useAuth();
   const [credentials, setCredentials] = useState({ username: '', password: '' });
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   if (loading) {
@@ -30,7 +30,7 @@ export default function LoginPage() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
-    setLoading(true);
+    setSubmitting(true);
 
     try {
       const user = await login(credentials);
@@ -43,7 +43,7 @@ export default function LoginPage() {
     } catch (err) {
       setError('ورود ناموفق بود. لطفا اطلاعات را بررسی کنید.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
@@ -68,8 +68,8 @@ export default function LoginPage() {
           />
         </label>
         {error && <div className="login-error">{error}</div>}
-        <button className="primary" type="submit" disabled={loading}>
-          {loading ? 'در حال ورود...' : 'ورود'}
+        <button className="primary" type="submit" disabled={submitting}>
+          {submitting ? 'در حال ورود...' : 'ورود'}
         </button>
       </form>
     </div>
