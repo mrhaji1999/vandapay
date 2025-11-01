@@ -77,7 +77,35 @@ class CORS_Manager {
 
                 $allowed_origins = $this->get_allowed_origins();
 
-                return in_array( $origin, $allowed_origins, true );
+                if ( in_array( $origin, $allowed_origins, true ) ) {
+                        return true;
+                }
+
+                $origin_domain = $this->get_registered_domain_from_origin( $origin );
+                if ( ! $origin_domain ) {
+                        return false;
+                }
+
+                $site_domains = array_filter(
+                        array(
+                                $this->get_registered_domain_from_origin( home_url() ),
+                                $this->get_registered_domain_from_origin( site_url() ),
+                        )
+                );
+
+                foreach ( $site_domains as $domain ) {
+                        if ( $domain === $origin_domain ) {
+                                return true;
+                        }
+                }
+
+                foreach ( $allowed_origins as $allowed_origin ) {
+                        if ( $origin_domain === $this->get_registered_domain_from_origin( $allowed_origin ) ) {
+                                return true;
+                        }
+                }
+
+                return false;
         }
 
         /**
@@ -153,5 +181,43 @@ class CORS_Manager {
                 header( 'Access-Control-Allow-Credentials: true' );
                 header( 'Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce' );
                 header( 'Vary: Origin' );
+        }
+
+        /**
+         * Build the registrable domain for an origin so sibling subdomains can be matched.
+         *
+         * @param string $origin Origin string.
+         * @return string|null
+         */
+        private function get_registered_domain_from_origin( $origin ) {
+                if ( ! $origin ) {
+                        return null;
+                }
+
+                $host = wp_parse_url( $origin, PHP_URL_HOST );
+                if ( ! $host ) {
+                        return null;
+                }
+
+                $parts = array_values( array_filter( explode( '.', strtolower( $host ) ) ) );
+                $count = count( $parts );
+
+                if ( 0 === $count ) {
+                        return null;
+                }
+
+                if ( 1 === $count ) {
+                        return $parts[0];
+                }
+
+                $tld           = array_pop( $parts );
+                $second_level  = array_pop( $parts );
+                $known_sl_tlds = array( 'co', 'com', 'net', 'org', 'gov', 'edu', 'ac' );
+
+                if ( in_array( $second_level, $known_sl_tlds, true ) && ! empty( $parts ) ) {
+                        $second_level = array_pop( $parts ) . '.' . $second_level;
+                }
+
+                return $second_level . '.' . $tld;
         }
 }

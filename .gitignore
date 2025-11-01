@@ -5,3 +5,8 @@ node_modules
 /frontend/.env
 /frontend/.env.*
 !/frontend/.env.example
+/cwm-app/dist
+/cwm-app/tsconfig.tsbuildinfo
+/cwm-app/tsconfig.node.tsbuildinfo
+/cwm-app/vite.config.js
+/cwm-app/vite.config.d.ts
