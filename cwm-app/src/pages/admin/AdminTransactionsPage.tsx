@@ -6,13 +6,14 @@ import { DataTable, type Column } from '../../components/common/DataTable';
 import { Button } from '../../components/ui/button';
 import { apiClient } from '../../api/client';
 import { exportToCsv } from '../../lib/csv';
+import { unwrapWordPressList } from '../../api/wordpress';
 
 interface Transaction {
   id: number;
   type: string;
   amount: number;
   created_at: string;
-  description?: string;
+  status?: string;
 }
 
 export const AdminTransactionsPage = () => {
@@ -24,8 +25,14 @@ export const AdminTransactionsPage = () => {
       const params = new URLSearchParams();
       if (filters.from) params.set('from', filters.from);
       if (filters.to) params.set('to', filters.to);
-      const response = await apiClient.get<Transaction[]>(`/admin/transactions?${params.toString()}`);
-      return response.data;
+      const response = await apiClient.get(`/admin/transactions?${params.toString()}`);
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((transaction) => ({
+        id: Number(transaction.id ?? 0),
+        type: String(transaction.type ?? ''),
+        amount: Number(transaction.amount ?? 0),
+        created_at: String(transaction.created_at ?? ''),
+        status: transaction.status ? String(transaction.status) : undefined
+      }));
     }
   });
 
@@ -34,7 +41,11 @@ export const AdminTransactionsPage = () => {
     { key: 'type', header: 'نوع' },
     { key: 'amount', header: 'مبلغ' },
     { key: 'created_at', header: 'تاریخ' },
-    { key: 'description', header: 'توضیحات' }
+    {
+      key: 'status',
+      header: 'وضعیت',
+      render: (transaction) => transaction.status ?? '—'
+    }
   ];
 
   return (

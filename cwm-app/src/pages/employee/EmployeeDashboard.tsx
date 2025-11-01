@@ -7,10 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Button } from '../../components/ui/button';
 import { OTPModal } from '../../components/common/OTPModal';
 import { apiClient } from '../../api/client';
-
-interface BalanceResponse {
-  balance: number;
-}
+import { unwrapWordPressList, unwrapWordPressObject } from '../../api/wordpress';
 
 interface Transaction {
   id: number;
@@ -18,6 +15,12 @@ interface Transaction {
   amount: number;
   created_at: string;
   description?: string;
+  status?: string;
+}
+
+interface BalancePayload {
+  balance?: number;
+  new_balance?: number;
 }
 
 export const EmployeeDashboard = () => {
@@ -26,12 +29,32 @@ export const EmployeeDashboard = () => {
 
   const { data: balance } = useQuery({
     queryKey: ['employee', 'balance'],
-    queryFn: async () => (await apiClient.get<BalanceResponse>('/wallet/balance')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/wallet/balance');
+      const data = unwrapWordPressObject<BalancePayload>(response.data);
+      if (!data) {
+        return { balance: 0 };
+      }
+
+      return {
+        balance: Number(data.balance ?? data.new_balance ?? 0)
+      };
+    }
   });
 
   const { data: transactions = [] } = useQuery({
     queryKey: ['employee', 'transactions'],
-    queryFn: async () => (await apiClient.get<Transaction[]>('/transactions/history')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/transactions/history');
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((transaction) => ({
+        id: Number(transaction.id ?? 0),
+        type: String(transaction.type ?? ''),
+        amount: Number(transaction.amount ?? 0),
+        created_at: String(transaction.created_at ?? ''),
+        description: transaction.description ? String(transaction.description) : undefined,
+        status: transaction.status ? String(transaction.status) : undefined
+      }));
+    }
   });
 
   const confirmMutation = useMutation({

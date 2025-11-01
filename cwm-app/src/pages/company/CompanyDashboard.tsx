@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { apiClient } from '../../api/client';
 import { useAuth } from '../../store/auth';
+import { unwrapWordPressList, unwrapWordPressObject } from '../../api/wordpress';
 
 interface CompanyEmployee {
   id: number;
@@ -21,27 +22,53 @@ interface Transaction {
   description?: string;
 }
 
+interface CompanyProfile {
+  id?: number;
+  name?: string;
+  display_name?: string;
+  email?: string;
+  company_name?: string;
+  status_message?: string;
+}
+
 export const CompanyDashboard = () => {
   const { user } = useAuth();
 
   const { data: profile } = useQuery({
     queryKey: ['company', 'profile'],
-    queryFn: async () => (await apiClient.get('/profile')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/profile');
+      return unwrapWordPressObject<CompanyProfile>(response.data);
+    }
   });
 
   const { data: employees = [] } = useQuery({
     queryKey: ['company', 'employees', user?.email],
     queryFn: async () => {
       if (!user?.email) return [] as CompanyEmployee[];
-      const response = await apiClient.get<CompanyEmployee[]>(`/admin/companies?email=${encodeURIComponent(user.email)}`);
-      return response.data;
+      const response = await apiClient.get(`/admin/companies?email=${encodeURIComponent(user.email)}`);
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((employee) => ({
+        id: Number(employee.id ?? 0),
+        name: String(employee.name ?? ''),
+        national_id: String(employee.national_id ?? ''),
+        balance: Number(employee.balance ?? 0)
+      }));
     },
     enabled: Boolean(user?.email)
   });
 
   const { data: transactions = [] } = useQuery({
     queryKey: ['company', 'transactions'],
-    queryFn: async () => (await apiClient.get<Transaction[]>('/transactions/history')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/transactions/history');
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((transaction) => ({
+        id: Number(transaction.id ?? 0),
+        type: String(transaction.type ?? ''),
+        amount: Number(transaction.amount ?? 0),
+        created_at: String(transaction.created_at ?? ''),
+        description: transaction.description ? String(transaction.description) : undefined
+      }));
+    }
   });
 
   const statusMessage = useMemo(() => {

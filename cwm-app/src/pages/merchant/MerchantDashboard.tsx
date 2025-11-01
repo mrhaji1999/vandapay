@@ -9,10 +9,7 @@ import { Button } from '../../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { PayoutStatusBadge } from '../../components/common/PayoutStatusBadge';
 import { apiClient } from '../../api/client';
-
-interface BalanceResponse {
-  balance: number;
-}
+import { unwrapWordPressList, unwrapWordPressObject } from '../../api/wordpress';
 
 interface Transaction {
   id: number;
@@ -20,6 +17,7 @@ interface Transaction {
   amount: number;
   created_at: string;
   description?: string;
+  status?: string;
 }
 
 interface PayoutStatus {
@@ -29,6 +27,11 @@ interface PayoutStatus {
   created_at: string;
 }
 
+interface BalancePayload {
+  balance?: number;
+  new_balance?: number;
+}
+
 export const MerchantDashboard = () => {
   const queryClient = useQueryClient();
   const [paymentLoading, setPaymentLoading] = useState(false);
@@ -36,17 +39,45 @@ export const MerchantDashboard = () => {
 
   const { data: balance } = useQuery({
     queryKey: ['merchant', 'balance'],
-    queryFn: async () => (await apiClient.get<BalanceResponse>('/wallet/balance')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/wallet/balance');
+      const data = unwrapWordPressObject<BalancePayload>(response.data);
+      if (!data) {
+        return { balance: 0 };
+      }
+
+      return {
+        balance: Number(data.balance ?? data.new_balance ?? 0)
+      };
+    }
   });
 
   const { data: transactions = [] } = useQuery({
     queryKey: ['merchant', 'transactions'],
-    queryFn: async () => (await apiClient.get<Transaction[]>('/transactions/history')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/transactions/history');
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((transaction) => ({
+        id: Number(transaction.id ?? 0),
+        type: String(transaction.type ?? ''),
+        amount: Number(transaction.amount ?? 0),
+        created_at: String(transaction.created_at ?? ''),
+        description: transaction.description ? String(transaction.description) : undefined,
+        status: transaction.status ? String(transaction.status) : undefined
+      }));
+    }
   });
 
   const { data: payoutStatus = [] } = useQuery({
     queryKey: ['merchant', 'payout-status'],
-    queryFn: async () => (await apiClient.get<PayoutStatus[]>('/payout/status')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/payout/status');
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((payout) => ({
+        id: Number(payout.id ?? 0),
+        amount: Number(payout.amount ?? 0),
+        status: String(payout.status ?? ''),
+        created_at: String(payout.created_at ?? '')
+      }));
+    }
   });
 
   const paymentMutation = useMutation({

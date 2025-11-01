@@ -12,12 +12,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { exportToCsv } from '../../lib/csv';
 import { useAuth } from '../../store/auth';
 import { hasCapability } from '../../types/user';
+import { unwrapWordPressList, unwrapWordPressObject } from '../../api/wordpress';
 
-interface StatsResponse {
+interface NormalizedStats {
   total_companies: number;
   total_merchants: number;
   total_payouts_pending: number;
   total_transactions: number;
+  total_balance?: number;
+  total_wallets?: number;
   chart?: { label: string; value: number }[];
 }
 
@@ -25,10 +28,9 @@ interface Company {
   id: number;
   title: string;
   status: string;
-  meta?: {
-    _cwm_company_type?: string;
-    company_email?: string;
-  };
+  company_type?: string;
+  email?: string;
+  phone?: string;
 }
 
 interface Employee {
@@ -36,19 +38,21 @@ interface Employee {
   name: string;
   balance: number;
   national_id?: string;
+  email?: string;
+  phone?: string;
 }
 
 interface Merchant {
   id: number;
   name: string;
-  wallet_balance: number;
+  balance: number;
   pending_payouts: number;
 }
 
 interface Payout {
   id: number;
-  company?: string;
-  merchant?: string;
+  merchant_id?: number;
+  bank_account?: string;
   amount: number;
   status: string;
   created_at?: string;
@@ -59,7 +63,9 @@ interface Transaction {
   type: string;
   amount: number;
   created_at: string;
-  description?: string;
+  sender_id?: number;
+  receiver_id?: number;
+  status?: string;
 }
 
 export const AdminDashboard = () => {
@@ -69,22 +75,77 @@ export const AdminDashboard = () => {
 
   const { data: stats } = useQuery({
     queryKey: ['admin', 'stats'],
-    queryFn: async () => (await apiClient.get<StatsResponse>('/admin/stats')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/admin/stats');
+      const raw = unwrapWordPressObject<Record<string, unknown>>(response.data);
+
+      if (!raw) {
+        return undefined;
+      }
+
+      const totalMerchants = (raw.total_merchants ?? raw.total_wallets) as number | undefined;
+      const pendingPayouts = (raw.total_payouts_pending ?? raw.pending_payout_sum) as number | undefined;
+      const totalTransactions = raw.total_transactions as number | undefined;
+
+      const chartData = Array.isArray((raw as Record<string, unknown>).chart)
+        ? ((raw as Record<string, unknown>).chart as { label: string; value: number }[])
+        : undefined;
+
+      const normalized: NormalizedStats = {
+        total_companies: raw.total_companies ?? 0,
+        total_merchants: typeof totalMerchants === 'number' ? totalMerchants : 0,
+        total_payouts_pending: typeof pendingPayouts === 'number' ? pendingPayouts : 0,
+        total_transactions: typeof totalTransactions === 'number' ? totalTransactions : 0,
+        total_balance: raw.total_balance,
+        total_wallets: raw.total_wallets,
+        chart: chartData
+      };
+
+      return normalized;
+    }
   });
 
   const { data: companies = [] } = useQuery({
     queryKey: ['admin', 'companies'],
-    queryFn: async () => (await apiClient.get<Company[]>('/admin/companies')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/admin/companies');
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((company) => ({
+        id: Number(company.id ?? 0),
+        title: String(company.title ?? ''),
+        status: String(company.status ?? ''),
+        company_type: company.company_type ? String(company.company_type) : undefined,
+        email: company.email ? String(company.email) : undefined,
+        phone: company.phone ? String(company.phone) : undefined
+      }));
+    }
   });
 
   const { data: merchants = [] } = useQuery({
     queryKey: ['admin', 'merchants'],
-    queryFn: async () => (await apiClient.get<Merchant[]>('/admin/merchants')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/admin/merchants');
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((merchant) => ({
+        id: Number(merchant.id ?? 0),
+        name: String(merchant.name ?? ''),
+        balance: Number(merchant.balance ?? merchant.wallet_balance ?? 0),
+        pending_payouts: Number(merchant.pending_payouts ?? 0)
+      }));
+    }
   });
 
   const { data: payouts = [] } = useQuery({
     queryKey: ['admin', 'payouts'],
-    queryFn: async () => (await apiClient.get<Payout[]>('/admin/payouts')).data
+    queryFn: async () => {
+      const response = await apiClient.get('/admin/payouts');
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((payout) => ({
+        id: Number(payout.id ?? 0),
+        merchant_id: payout.merchant_id ? Number(payout.merchant_id) : undefined,
+        bank_account: payout.bank_account ? String(payout.bank_account) : undefined,
+        amount: Number(payout.amount ?? 0),
+        status: String(payout.status ?? ''),
+        created_at: payout.created_at ? String(payout.created_at) : undefined
+      }));
+    }
   });
 
   const { data: transactions = [] } = useQuery({
@@ -93,8 +154,16 @@ export const AdminDashboard = () => {
       const params = new URLSearchParams();
       if (dateFilter.from) params.set('from', dateFilter.from);
       if (dateFilter.to) params.set('to', dateFilter.to);
-      const response = await apiClient.get<Transaction[]>(`/admin/transactions?${params.toString()}`);
-      return response.data;
+      const response = await apiClient.get(`/admin/transactions?${params.toString()}`);
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((transaction) => ({
+        id: Number(transaction.id ?? 0),
+        type: String(transaction.type ?? ''),
+        amount: Number(transaction.amount ?? 0),
+        created_at: String(transaction.created_at ?? ''),
+        sender_id: transaction.sender_id ? Number(transaction.sender_id) : undefined,
+        receiver_id: transaction.receiver_id ? Number(transaction.receiver_id) : undefined,
+        status: transaction.status ? String(transaction.status) : undefined
+      }));
     }
   });
 
@@ -102,8 +171,15 @@ export const AdminDashboard = () => {
     queryKey: ['admin', 'companies', selectedCompany?.id, 'employees'],
     queryFn: async () => {
       if (!selectedCompany) return [] as Employee[];
-      const response = await apiClient.get<Employee[]>(`/admin/companies/${selectedCompany.id}/employees`);
-      return response.data;
+      const response = await apiClient.get(`/admin/companies/${selectedCompany.id}/employees`);
+      return unwrapWordPressList<Record<string, unknown>>(response.data).map((employee) => ({
+        id: Number(employee.id ?? 0),
+        name: String(employee.name ?? ''),
+        balance: Number(employee.balance ?? 0),
+        national_id: employee.national_id ? String(employee.national_id) : undefined,
+        email: employee.email ? String(employee.email) : undefined,
+        phone: employee.phone ? String(employee.phone) : undefined
+      }));
     },
     enabled: Boolean(selectedCompany?.id)
   });
@@ -113,14 +189,14 @@ export const AdminDashboard = () => {
     { key: 'title', header: 'عنوان / نام' },
     { key: 'status', header: 'وضعیت' },
     {
-      key: 'type',
+      key: 'company_type',
       header: 'نوع شرکت',
-      render: (company) => company.meta?._cwm_company_type ?? '—'
+      render: (company) => company.company_type ?? '—'
     },
     {
       key: 'email',
       header: 'ایمیل شرکت',
-      render: (company) => company.meta?.company_email ?? '—'
+      render: (company) => company.email ?? '—'
     },
     {
       key: 'actions',
@@ -135,14 +211,21 @@ export const AdminDashboard = () => {
 
   const merchantColumns: Column<Merchant>[] = [
     { key: 'name', header: 'پذیرنده' },
-    { key: 'wallet_balance', header: 'موجودی کیف پول' },
+    {
+      key: 'balance',
+      header: 'موجودی کیف پول',
+      render: (merchant) => merchant.balance.toLocaleString()
+    },
     { key: 'pending_payouts', header: 'تسویه‌های در انتظار' }
   ];
 
   const payoutColumns: Column<Payout>[] = [
     { key: 'id', header: 'شناسه' },
-    { key: 'merchant', header: 'پذیرنده' },
-    { key: 'company', header: 'شرکت' },
+    {
+      key: 'merchant_id',
+      header: 'شناسه پذیرنده',
+      render: (payout) => payout.merchant_id ?? '—'
+    },
     { key: 'amount', header: 'مبلغ' },
     {
       key: 'status',
@@ -156,7 +239,11 @@ export const AdminDashboard = () => {
     { key: 'type', header: 'نوع' },
     { key: 'amount', header: 'مبلغ' },
     { key: 'created_at', header: 'تاریخ' },
-    { key: 'description', header: 'توضیحات' }
+    {
+      key: 'status',
+      header: 'وضعیت',
+      render: (transaction) => transaction.status ?? '—'
+    }
   ];
 
   if (!hasCapability(user, 'manage_wallets')) {
