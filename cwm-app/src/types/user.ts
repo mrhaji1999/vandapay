@@ -12,5 +12,17 @@ export type UserProfile = {
 
 export const hasCapability = (user: UserProfile | null | undefined, capability: string) => {
   if (!user) return false;
-  return user.capabilities?.includes(capability) ?? false;
+
+  if (user.capabilities?.includes(capability)) {
+    return true;
+  }
+
+  if (capability === 'manage_wallets') {
+    const roles = user.roles ?? (user.role ? [user.role] : []);
+    if (roles.includes('administrator')) {
+      return true;
+    }
+  }
+
+  return false;
 };

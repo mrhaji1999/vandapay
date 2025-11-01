@@ -600,7 +600,21 @@ class API_Handler {
 
         $roles        = array_values( (array) $user->roles );
         $primary_role = ! empty( $roles ) ? $roles[0] : null;
-        $capabilities = array_keys( array_filter( (array) $user->caps ) );
+        // Use allcaps so role-based capabilities (like administrator defaults) are included.
+        $capabilities = array_keys( array_filter( (array) $user->allcaps ) );
+
+        if ( in_array( 'administrator', $roles, true ) && ! in_array( 'manage_wallets', $capabilities, true ) ) {
+            $capabilities[] = 'manage_wallets';
+        }
+
+        $this->debug_log(
+            'Resolved profile data',
+            [
+                'user_id'      => $user->ID,
+                'roles'        => $roles,
+                'capabilities' => $capabilities,
+            ]
+        );
 
         $data = array(
             'id'           => (int) $user->ID,
@@ -905,12 +919,43 @@ class API_Handler {
     public function admin_permission_check( WP_REST_Request $request ) {
         $validation = $this->validate_token( $request );
         if ( is_wp_error( $validation ) ) {
+            $this->debug_log(
+                'Admin permission denied: invalid token',
+                [
+                    'error_code'    => $validation->get_error_code(),
+                    'error_message' => $validation->get_error_message(),
+                ]
+            );
             return false;
         }
 
         $user = wp_get_current_user();
 
-        return user_can( $user, 'manage_wallets' );
+        if ( user_can( $user, 'manage_wallets' ) ) {
+            $this->debug_log(
+                'Admin permission granted via capability',
+                [
+                    'user_id' => $user->ID,
+                    'roles'   => $user->roles,
+                ]
+            );
+            return true;
+        }
+
+        $has_admin_role = $this->user_has_role( $user, 'administrator' );
+
+        $this->debug_log(
+            $has_admin_role
+                ? 'Admin permission granted via administrator role'
+                : 'Admin permission denied: missing capability and role',
+            [
+                'user_id'      => $user->ID,
+                'roles'        => $user->roles,
+                'capabilities' => array_keys( array_filter( (array) $user->allcaps ) ),
+            ]
+        );
+
+        return $has_admin_role;
     }
 
     /**
@@ -1254,5 +1299,18 @@ class API_Handler {
         }
 
         return in_array( $role, (array) $user->roles, true );
+    }
+
+    /**
+     * Write debug information to the error log when WP_DEBUG is enabled.
+     */
+    protected function debug_log( $message, array $context = [] ) {
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            if ( ! empty( $context ) ) {
+                $message .= ' ' . wp_json_encode( $context );
+            }
+
+            error_log( '[CWM] ' . $message );
+        }
     }
 }
