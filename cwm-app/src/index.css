@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply text-foreground bg-background min-h-screen;
+  direction: rtl;
+  text-align: right;
+}
+
+#root {
+  @apply min-h-screen;
+}
