@@ -28,11 +28,18 @@ export const LoginPage = () => {
       const profile = await fetchProfile();
       const resolvedRole = decodeRole(token) ?? profile?.role ?? profile?.roles?.[0] ?? null;
 
-      if (!profile && resolvedRole) {
+      if (profile) {
+        if (resolvedRole && resolvedRole !== profile.role) {
+          setUser({
+            ...profile,
+            role: resolvedRole,
+            roles: Array.from(new Set([resolvedRole, ...(profile.roles ?? [])]))
+          });
+        }
+      } else if (resolvedRole) {
         setUser({
           id: 0,
           username,
-          email: '',
           role: resolvedRole,
           roles: [resolvedRole]
         });

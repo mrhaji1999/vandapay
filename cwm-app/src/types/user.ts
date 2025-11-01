@@ -2,8 +2,8 @@ import type { Role } from '../store/auth';
 
 export type UserProfile = {
   id: number;
-  username: string;
-  email: string;
+  username?: string;
+  email?: string;
   name?: string;
   role?: Role;
   roles?: Role[];

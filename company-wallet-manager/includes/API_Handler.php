@@ -598,11 +598,18 @@ class API_Handler {
             return new \WP_Error( 'rest_user_invalid', 'Authenticated user could not be determined.', array( 'status' => 404 ) );
         }
 
+        $roles        = array_values( (array) $user->roles );
+        $primary_role = ! empty( $roles ) ? $roles[0] : null;
+        $capabilities = array_keys( array_filter( (array) $user->caps ) );
+
         $data = array(
-            'id'           => $user->ID,
+            'id'           => (int) $user->ID,
+            'username'     => $user->user_login,
             'email'        => $user->user_email,
-            'display_name' => $user->display_name,
-            'roles'        => $user->roles,
+            'name'         => $user->display_name,
+            'role'         => $primary_role,
+            'roles'        => $roles,
+            'capabilities' => $capabilities,
         );
 
         return rest_ensure_response(

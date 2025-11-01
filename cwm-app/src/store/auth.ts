@@ -6,6 +6,57 @@ import type { UserProfile } from '../types/user';
 
 export type Role = 'administrator' | 'company' | 'merchant' | 'employee';
 
+type ProfileResponse = {
+  status?: string;
+  data?: {
+    id?: number;
+    username?: string;
+    email?: string;
+    name?: string;
+    display_name?: string;
+    role?: Role;
+    roles?: Role[];
+    capabilities?: string[] | Record<string, boolean>;
+  };
+};
+
+const isRole = (value: unknown): value is Role =>
+  value === 'administrator' || value === 'company' || value === 'merchant' || value === 'employee';
+
+const normalizeCapabilities = (
+  raw: string[] | Record<string, boolean> | undefined
+): string[] | undefined => {
+  if (!raw) return undefined;
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+
+  return Object.entries(raw)
+    .filter(([, allowed]) => Boolean(allowed))
+    .map(([capability]) => capability);
+};
+
+const normalizeProfile = (payload?: ProfileResponse['data']): UserProfile | null => {
+  if (!payload || typeof payload.id !== 'number') {
+    return null;
+  }
+
+  const roles = Array.isArray(payload.roles)
+    ? (payload.roles.filter(isRole) as Role[])
+    : undefined;
+  const primaryRole = payload.role && isRole(payload.role) ? payload.role : roles?.[0];
+
+  return {
+    id: payload.id,
+    username: payload.username ?? payload.email ?? undefined,
+    email: payload.email ?? undefined,
+    name: payload.name ?? payload.display_name ?? payload.username ?? payload.email ?? undefined,
+    role: primaryRole,
+    roles: roles ?? (primaryRole ? [primaryRole] : undefined),
+    capabilities: normalizeCapabilities(payload.capabilities),
+  };
+};
+
 type AuthState = {
   token: string | null;
   user: UserProfile | null;
@@ -25,12 +76,22 @@ const useAuthStore = create<AuthState>()(
       setToken: (token) => {
         set({ token, isAuthenticated: Boolean(token) });
       },
-      setUser: (user) => set({ user }),
+      setUser: (user) =>
+        set((state) => ({
+          user,
+          isAuthenticated: user ? true : state.isAuthenticated && Boolean(state.token),
+        })),
       fetchProfile: async () => {
         try {
-          const response = await apiClient.get<UserProfile>('/profile');
-          set({ user: response.data, isAuthenticated: true });
-          return response.data;
+          const response = await apiClient.get<ProfileResponse>('/profile');
+          const normalized = normalizeProfile(response.data?.data);
+
+          if (normalized) {
+            set({ user: normalized, isAuthenticated: true });
+            return normalized;
+          }
+
+          return null;
         } catch (error) {
           console.warn('Failed to fetch profile', error);
           return null;
