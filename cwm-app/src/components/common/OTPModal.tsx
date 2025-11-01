@@ -7,16 +7,21 @@ import { cn } from '../../utils/cn';
 interface OTPModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (values: { requestId: string; otp: string }) => void;
+  onSubmit: (values: { otp: string }) => void;
   isSubmitting?: boolean;
+  request?: {
+    id: number | string;
+    amount?: number;
+    storeName?: string;
+    merchantName?: string;
+  };
 }
 
-export const OTPModal = ({ open, onOpenChange, onSubmit, isSubmitting }: OTPModalProps) => {
+export const OTPModal = ({ open, onOpenChange, onSubmit, isSubmitting, request }: OTPModalProps) => {
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     onSubmit({
-      requestId: String(form.get('requestId') ?? ''),
       otp: String(form.get('otp') ?? '')
     });
   };
@@ -32,13 +37,20 @@ export const OTPModal = ({ open, onOpenChange, onSubmit, isSubmitting }: OTPModa
         >
           <Dialog.Title className="text-lg font-semibold">تأیید پرداخت</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-muted-foreground">
-            شناسه درخواست و رمز یکبار مصرف ارسال‌شده را وارد کنید.
+            کد تأیید ارسال‌شده برای پرداخت انتخاب‌شده را وارد کنید.
           </Dialog.Description>
-          <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
-            <div className="space-y-2">
-              <Label htmlFor="requestId">شناسه درخواست</Label>
-              <Input id="requestId" name="requestId" required placeholder="REQ-123" />
+          {request && (
+            <div className="mt-4 rounded-md border border-muted-foreground/20 bg-muted/40 p-3 text-sm">
+              <p className="font-medium">{request.storeName ?? 'پرداخت'}</p>
+              <p className="mt-1 text-muted-foreground">
+                مبلغ: <span className="font-semibold text-foreground">{request.amount ?? '—'}</span>
+              </p>
+              {request.merchantName && (
+                <p className="text-muted-foreground">پذیرنده: {request.merchantName}</p>
+              )}
             </div>
+          )}
+          <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <Label htmlFor="otp">کد تأیید</Label>
               <Input id="otp" name="otp" required placeholder="123456" />
@@ -49,7 +61,7 @@ export const OTPModal = ({ open, onOpenChange, onSubmit, isSubmitting }: OTPModa
                   انصراف
                 </Button>
               </Dialog.Close>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || !request}>
                 تأیید
               </Button>
             </div>

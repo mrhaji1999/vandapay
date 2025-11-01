@@ -81,7 +81,7 @@ export const MerchantDashboard = () => {
   });
 
   const paymentMutation = useMutation({
-    mutationFn: async (payload: { national_id: string; amount: number }) => {
+    mutationFn: async (payload: { employee_national_id: string; amount: number }) => {
       await apiClient.post('/payment/request', payload);
     },
     onSuccess: () => {
@@ -103,11 +103,11 @@ export const MerchantDashboard = () => {
   const handlePaymentRequest = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const national_id = String(form.get('national_id') ?? '');
+    const employee_national_id = String(form.get('national_id') ?? '');
     const amount = Number(form.get('amount') ?? 0);
     setPaymentLoading(true);
     try {
-      await paymentMutation.mutateAsync({ national_id, amount });
+      await paymentMutation.mutateAsync({ employee_national_id, amount });
       event.currentTarget.reset();
     } finally {
       setPaymentLoading(false);
