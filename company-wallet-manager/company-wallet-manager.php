@@ -96,3 +96,24 @@ function cwm_render_react_app() {
     // Provide a root element for the React app.
     return '<div id="root"></div>';
 }
+add_action('rest_api_init', function () {
+    register_rest_route('cwm/v1', '/token', [
+        'methods'  => 'POST',
+        'permission_callback' => '__return_true',
+        'callback' => function (\WP_REST_Request $request) {
+            $username = $request->get_param('username');
+            $password = $request->get_param('password');
+
+            // ریکوئست رو شبیه ریکوئست jwt-auth می‌کنیم
+            $jwt_request = new \WP_REST_Request('POST', '/jwt-auth/v1/token');
+            $jwt_request->set_param('username', $username);
+            $jwt_request->set_param('password', $password);
+
+            // حالا رانش می‌کنیم
+            $response = rest_do_request($jwt_request);
+
+            // همون رو برگردون
+            return $response;
+        },
+    ]);
+});
