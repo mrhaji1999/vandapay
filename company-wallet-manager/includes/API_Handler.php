@@ -600,7 +600,8 @@ class API_Handler {
 
         $roles        = array_values( (array) $user->roles );
         $primary_role = ! empty( $roles ) ? $roles[0] : null;
-        $capabilities = array_keys( array_filter( (array) $user->caps ) );
+        // Use allcaps so role-based capabilities (like administrator defaults) are included.
+        $capabilities = array_keys( array_filter( (array) $user->allcaps ) );
 
         $data = array(
             'id'           => (int) $user->ID,
