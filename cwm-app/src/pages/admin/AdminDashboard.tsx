@@ -84,6 +84,7 @@ export const AdminDashboard = () => {
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [dateFilter, setDateFilter] = useState<{ from?: string; to?: string }>({});
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [bulkAmount, setBulkAmount] = useState<string>('');
   const [importSummary, setImportSummary] = useState<EmployeeImportSummary | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const queryClient = useQueryClient();
@@ -200,9 +201,12 @@ export const AdminDashboard = () => {
   });
 
   const employeeImportMutation = useMutation({
-    mutationFn: async ({ companyId, file }: { companyId: number; file: File }) => {
+    mutationFn: async ({ companyId, file, amount }: { companyId: number; file: File; amount?: string }) => {
       const formData = new FormData();
       formData.append('file', file);
+      if (amount && amount.trim() !== '') {
+        formData.append('amount', amount.trim());
+      }
       const response = await apiClient.post(`/admin/companies/${companyId}/employees/import`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
@@ -403,25 +407,41 @@ export const AdminDashboard = () => {
                 toast.error('لطفاً فایل CSV کارکنان را انتخاب کنید.');
                 return;
               }
-              employeeImportMutation.mutate({ companyId: selectedCompany.id, file: selectedFile });
+              employeeImportMutation.mutate({ companyId: selectedCompany.id, file: selectedFile, amount: bulkAmount });
             }}
           >
-            <div className="space-y-2 text-right">
-              <Label htmlFor="employee-csv">آپلود فایل CSV کارکنان</Label>
-              <Input
-                id="employee-csv"
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  setSelectedFile(file ?? null);
-                }}
-                disabled={employeeImportMutation.isPending}
-              />
-              <p className="text-xs text-muted-foreground">
-                ستون‌های پشتیبانی‌شده: name, email, national_id, mobile, balance. ردیف اول باید عنوان ستون‌ها باشد.
-              </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 text-right">
+                <Label htmlFor="bulk-amount">مبلغ شارژ برای هر کارمند (اختیاری)</Label>
+                <Input
+                  id="bulk-amount"
+                  inputMode="decimal"
+                  placeholder="مثلاً 1000000"
+                  value={bulkAmount}
+                  onChange={(e) => setBulkAmount(e.target.value)}
+                  disabled={employeeImportMutation.isPending}
+                />
+                <p className="text-xs text-muted-foreground">
+                  در صورت تنظیم، به کیف پول همه کارکنان همین مقدار افزوده میD0شود.
+                </p>
+              </div>
+              <div className="space-y-2 text-right">
+                <Label htmlFor="employee-csv">آپلود فایل CSV کارکنان</Label>
+                <Input
+                  id="employee-csv"
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setSelectedFile(file ?? null);
+                  }}
+                  disabled={employeeImportMutation.isPending}
+                />
+                <p className="text-xs text-muted-foreground">
+                  ستون‌های پشتیبانی‌شده: name, email, national_id, mobile, balance. ردیف اول باید عنوان ستون‌ها باشد.
+                </p>
+              </div>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-4">
               <Button type="submit" disabled={employeeImportMutation.isPending}>
