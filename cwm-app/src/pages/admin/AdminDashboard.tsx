@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ResponsiveContainer, LineChart, Line, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
 import { apiClient } from '../../api/client';
 import { DashboardLayout } from '../../components/layout/DashboardLayout';
@@ -13,6 +13,9 @@ import { exportToCsv } from '../../lib/csv';
 import { useAuth } from '../../store/auth';
 import { hasCapability } from '../../types/user';
 import { unwrapWordPressList, unwrapWordPressObject } from '../../api/wordpress';
+import { Input } from '../../components/ui/input';
+import { Label } from '../../components/ui/label';
+import toast from 'react-hot-toast';
 
 interface NormalizedStats {
   total_companies: number;
@@ -40,6 +43,14 @@ interface Employee {
   national_id?: string;
   email?: string;
   phone?: string;
+}
+
+interface EmployeeImportSummary {
+  processed: number;
+  created: number;
+  updated: number;
+  balances_adjusted: number;
+  errors: { row: number; message: string }[];
 }
 
 interface Merchant {
@@ -72,6 +83,10 @@ export const AdminDashboard = () => {
   const { user } = useAuth();
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [dateFilter, setDateFilter] = useState<{ from?: string; to?: string }>({});
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [importSummary, setImportSummary] = useState<EmployeeImportSummary | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const queryClient = useQueryClient();
 
   const { data: stats } = useQuery({
     queryKey: ['admin', 'stats'],
@@ -184,6 +199,37 @@ export const AdminDashboard = () => {
     enabled: Boolean(selectedCompany?.id)
   });
 
+  const employeeImportMutation = useMutation({
+    mutationFn: async ({ companyId, file }: { companyId: number; file: File }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await apiClient.post(`/admin/companies/${companyId}/employees/import`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      return response.data as EmployeeImportSummary;
+    },
+    onSuccess: (data, variables) => {
+      setImportSummary({
+        processed: data.processed,
+        created: data.created,
+        updated: data.updated,
+        balances_adjusted: data.balances_adjusted,
+        errors: Array.isArray(data.errors) ? data.errors : []
+      });
+      toast.success('فایل کارکنان با موفقیت پردازش شد.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      setSelectedFile(null);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'companies', variables.companyId, 'employees'] });
+    },
+    onError: () => {
+      toast.error('بارگذاری CSV کارکنان با خطا مواجه شد.');
+    }
+  });
+
   const companyColumns: Column<Company>[] = [
     { key: 'id', header: 'شناسه' },
     { key: 'title', header: 'عنوان / نام' },
@@ -202,7 +248,18 @@ export const AdminDashboard = () => {
       key: 'actions',
       header: 'عملیات',
       render: (company) => (
-        <Button size="sm" variant="outline" onClick={() => setSelectedCompany(company)}>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setSelectedCompany(company);
+            setImportSummary(null);
+            setSelectedFile(null);
+            if (fileInputRef.current) {
+              fileInputRef.current.value = '';
+            }
+          }}
+        >
           مشاهده کارکنان
         </Button>
       )
@@ -320,10 +377,81 @@ export const AdminDashboard = () => {
               <h3 className="text-lg font-semibold">کارکنان {selectedCompany.title}</h3>
               <p className="text-sm text-muted-foreground">جزئیات موجودی کیف پول هر کارمند</p>
             </div>
-            <Button variant="ghost" onClick={() => setSelectedCompany(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSelectedCompany(null);
+                setImportSummary(null);
+                setSelectedFile(null);
+                if (fileInputRef.current) {
+                  fileInputRef.current.value = '';
+                }
+              }}
+            >
               بستن
             </Button>
           </div>
+          <form
+            className="mt-4 space-y-4 rounded-md border border-dashed border-slate-200 p-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!selectedCompany) {
+                toast.error('ابتدا یک شرکت را انتخاب کنید.');
+                return;
+              }
+              if (!selectedFile) {
+                toast.error('لطفاً فایل CSV کارکنان را انتخاب کنید.');
+                return;
+              }
+              employeeImportMutation.mutate({ companyId: selectedCompany.id, file: selectedFile });
+            }}
+          >
+            <div className="space-y-2 text-right">
+              <Label htmlFor="employee-csv">آپلود فایل CSV کارکنان</Label>
+              <Input
+                id="employee-csv"
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  setSelectedFile(file ?? null);
+                }}
+                disabled={employeeImportMutation.isPending}
+              />
+              <p className="text-xs text-muted-foreground">
+                ستون‌های پشتیبانی‌شده: name, email, national_id, mobile, balance. ردیف اول باید عنوان ستون‌ها باشد.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <Button type="submit" disabled={employeeImportMutation.isPending}>
+                {employeeImportMutation.isPending ? 'در حال پردازش...' : 'بارگذاری CSV'}
+              </Button>
+              {importSummary && (
+                <div className="text-xs text-muted-foreground">
+                  <span>ردیف‌ها: {importSummary.processed}</span>
+                  <span className="mx-2">•</span>
+                  <span>ایجاد شده: {importSummary.created}</span>
+                  <span className="mx-2">•</span>
+                  <span>به‌روزرسانی: {importSummary.updated}</span>
+                  <span className="mx-2">•</span>
+                  <span>تغییر موجودی: {importSummary.balances_adjusted}</span>
+                </div>
+              )}
+            </div>
+            {importSummary?.errors.length ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-900">
+                <p className="font-semibold">برخی ردیف‌ها با خطا مواجه شدند:</p>
+                <ul className="mt-1 list-disc space-y-1 pr-4">
+                  {importSummary.errors.map((error) => (
+                    <li key={`${error.row}-${error.message}`}>
+                      ردیف {error.row}: {error.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </form>
           <Table className="mt-4">
             <TableHeader>
               <TableRow>
@@ -342,6 +470,13 @@ export const AdminDashboard = () => {
                   <TableCell>{employee.balance}</TableCell>
                 </TableRow>
               ))}
+              {employees.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">
+                    برای این شرکت کارمندی ثبت نشده است.
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </section>
