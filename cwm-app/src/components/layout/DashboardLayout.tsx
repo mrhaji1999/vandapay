@@ -5,18 +5,12 @@ import { Button } from '../ui/button';
 
 const NAV_ITEMS = {
   administrator: [
-    { to: '/admin', label: 'Dashboard' },
-    { to: '/admin/transactions', label: 'Transactions' }
+    { to: '/admin', label: 'داشبورد مدیریت' },
+    { to: '/admin/transactions', label: 'گزارش تراکنش‌ها' }
   ],
-  company: [
-    { to: '/company', label: 'Company Overview' }
-  ],
-  merchant: [
-    { to: '/merchant', label: 'Merchant Dashboard' }
-  ],
-  employee: [
-    { to: '/employee', label: 'Employee Dashboard' }
-  ]
+  company: [{ to: '/company', label: 'نمای کلی شرکت' }],
+  merchant: [{ to: '/merchant', label: 'داشبورد پذیرنده' }],
+  employee: [{ to: '/employee', label: 'پنل کارمند' }]
 } as const;
 
 export const DashboardLayout = ({ children }: PropsWithChildren) => {
@@ -30,9 +24,9 @@ export const DashboardLayout = ({ children }: PropsWithChildren) => {
     <div className="min-h-screen bg-slate-100">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div>
-            <p className="text-lg font-semibold">Company Wallet Manager</p>
-            <p className="text-sm text-muted-foreground">Welcome back, {user?.name || user?.username}</p>
+          <div className="text-right">
+            <p className="text-lg font-semibold">مدیریت کیف پول سازمانی</p>
+            <p className="text-sm text-muted-foreground">{user?.name || user?.username} عزیز، خوش آمدید</p>
           </div>
           <Button
             variant="outline"
@@ -41,13 +35,13 @@ export const DashboardLayout = ({ children }: PropsWithChildren) => {
               navigate('/login', { replace: true });
             }}
           >
-            Log out
+            خروج
           </Button>
         </div>
       </header>
-      <div className="mx-auto flex max-w-6xl gap-8 px-6 py-8">
-        <aside className="w-64 space-y-4">
-          <nav className="flex flex-col space-y-2">
+      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8 lg:flex-row-reverse">
+        <aside className="w-full space-y-4 lg:w-64">
+          <nav className="flex flex-col space-y-2 text-right">
             {items.map((item) => (
               <NavLink
                 key={item.to}

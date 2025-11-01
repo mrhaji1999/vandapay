@@ -30,27 +30,27 @@ export const OTPModal = ({ open, onOpenChange, onSubmit, isSubmitting }: OTPModa
             'fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-white p-6 shadow-lg'
           )}
         >
-          <Dialog.Title className="text-lg font-semibold">Confirm payment</Dialog.Title>
+          <Dialog.Title className="text-lg font-semibold">تأیید پرداخت</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-muted-foreground">
-            Enter the request ID and OTP shared with you to confirm the payment.
+            شناسه درخواست و رمز یکبار مصرف ارسال‌شده را وارد کنید.
           </Dialog.Description>
           <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="requestId">Request ID</Label>
+              <Label htmlFor="requestId">شناسه درخواست</Label>
               <Input id="requestId" name="requestId" required placeholder="REQ-123" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="otp">OTP Code</Label>
+              <Label htmlFor="otp">کد تأیید</Label>
               <Input id="otp" name="otp" required placeholder="123456" />
             </div>
             <div className="flex justify-end gap-2">
               <Dialog.Close asChild>
                 <Button type="button" variant="ghost">
-                  Cancel
+                  انصراف
                 </Button>
               </Dialog.Close>
               <Button type="submit" disabled={isSubmitting}>
-                Confirm
+                تأیید
               </Button>
             </div>
           </form>

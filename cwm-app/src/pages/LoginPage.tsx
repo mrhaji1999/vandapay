@@ -34,12 +34,12 @@ export const LoginPage = () => {
           role: role ?? undefined
         });
       }
-      toast.success('Logged in successfully');
+      toast.success('ورود با موفقیت انجام شد');
       const role = decodeRole(token) ?? profile?.role ?? profile?.roles?.[0] ?? 'employee';
       navigate(`/${role}`, { replace: true });
     } catch (error) {
       console.error(error);
-      toast.error('Invalid username or password');
+      toast.error('نام کاربری یا رمز عبور نامعتبر است');
     } finally {
       setLoading(false);
     }
@@ -49,34 +49,40 @@ export const LoginPage = () => {
     <AuthLayout>
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div className="space-y-2">
-          <Label htmlFor="username">Username</Label>
-          <Input id="username" name="username" placeholder="Enter your username" required autoComplete="username" />
+          <Label htmlFor="username">نام کاربری</Label>
+          <Input
+            id="username"
+            name="username"
+            placeholder="نام کاربری خود را وارد کنید"
+            required
+            autoComplete="username"
+          />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <Label htmlFor="password">رمز عبور</Label>
           <Input
             id="password"
             name="password"
             type="password"
-            placeholder="Enter your password"
+            placeholder="رمز عبور خود را وارد کنید"
             required
             autoComplete="current-password"
           />
         </div>
         <Button className="w-full" type="submit" disabled={loading}>
-          {loading ? 'Signing in…' : 'Sign in'}
+          {loading ? 'در حال ورود…' : 'ورود'}
         </Button>
         <div className="text-center text-sm">
           <p>
-            Need an account?{' '}
+            حساب کاربری ندارید؟{' '}
             <Link className="text-primary underline" to="/register/company">
-              Register your company
+              ثبت‌نام شرکت
             </Link>{' '}
-            or{' '}
+            کنید یا{' '}
             <Link className="text-primary underline" to="/register/merchant">
-              register as merchant
-            </Link>
-            .
+              ثبت‌نام پذیرنده
+            </Link>{' '}
+            انجام دهید.
           </p>
         </div>
       </form>

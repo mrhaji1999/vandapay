@@ -109,54 +109,54 @@ export const AdminDashboard = () => {
   });
 
   const companyColumns: Column<Company>[] = [
-    { key: 'id', header: 'ID' },
-    { key: 'title', header: 'Title / Name' },
-    { key: 'status', header: 'Status' },
+    { key: 'id', header: 'شناسه' },
+    { key: 'title', header: 'عنوان / نام' },
+    { key: 'status', header: 'وضعیت' },
     {
       key: 'type',
-      header: 'Company type',
+      header: 'نوع شرکت',
       render: (company) => company.meta?._cwm_company_type ?? '—'
     },
     {
       key: 'email',
-      header: 'Company email',
+      header: 'ایمیل شرکت',
       render: (company) => company.meta?.company_email ?? '—'
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: 'عملیات',
       render: (company) => (
         <Button size="sm" variant="outline" onClick={() => setSelectedCompany(company)}>
-          View employees
+          مشاهده کارکنان
         </Button>
       )
     }
   ];
 
   const merchantColumns: Column<Merchant>[] = [
-    { key: 'name', header: 'Merchant' },
-    { key: 'wallet_balance', header: 'Wallet balance' },
-    { key: 'pending_payouts', header: 'Pending payouts' }
+    { key: 'name', header: 'پذیرنده' },
+    { key: 'wallet_balance', header: 'موجودی کیف پول' },
+    { key: 'pending_payouts', header: 'تسویه‌های در انتظار' }
   ];
 
   const payoutColumns: Column<Payout>[] = [
-    { key: 'id', header: 'ID' },
-    { key: 'merchant', header: 'Merchant' },
-    { key: 'company', header: 'Company' },
-    { key: 'amount', header: 'Amount' },
+    { key: 'id', header: 'شناسه' },
+    { key: 'merchant', header: 'پذیرنده' },
+    { key: 'company', header: 'شرکت' },
+    { key: 'amount', header: 'مبلغ' },
     {
       key: 'status',
-      header: 'Status',
+      header: 'وضعیت',
       render: (payout) => <PayoutStatusBadge status={payout.status} />
     }
   ];
 
   const transactionColumns: Column<Transaction>[] = [
-    { key: 'id', header: 'ID' },
-    { key: 'type', header: 'Type' },
-    { key: 'amount', header: 'Amount' },
-    { key: 'created_at', header: 'Date' },
-    { key: 'description', header: 'Description' }
+    { key: 'id', header: 'شناسه' },
+    { key: 'type', header: 'نوع' },
+    { key: 'amount', header: 'مبلغ' },
+    { key: 'created_at', header: 'تاریخ' },
+    { key: 'description', header: 'توضیحات' }
   ];
 
   if (!hasCapability(user, 'manage_wallets')) {
@@ -164,12 +164,10 @@ export const AdminDashboard = () => {
       <DashboardLayout>
         <Card>
           <CardHeader>
-            <CardTitle>Unauthorized</CardTitle>
+            <CardTitle>دسترسی غیرمجاز</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">
-              Your account does not have permission to access the admin dashboard.
-            </p>
+            <p className="text-muted-foreground">حساب کاربری شما مجوز مشاهده داشبورد مدیریت را ندارد.</p>
           </CardContent>
         </Card>
       </DashboardLayout>
@@ -181,39 +179,39 @@ export const AdminDashboard = () => {
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader>
-            <CardTitle>Total companies</CardTitle>
+            <CardTitle>تعداد کل شرکت‌ها</CardTitle>
           </CardHeader>
           <CardContent className="text-3xl font-semibold">{stats?.total_companies ?? 0}</CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Total merchants</CardTitle>
+            <CardTitle>تعداد کل پذیرندگان</CardTitle>
           </CardHeader>
           <CardContent className="text-3xl font-semibold">{stats?.total_merchants ?? 0}</CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Pending payouts</CardTitle>
+            <CardTitle>تسویه‌های در انتظار</CardTitle>
           </CardHeader>
           <CardContent className="text-3xl font-semibold">{stats?.total_payouts_pending ?? 0}</CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Total transactions</CardTitle>
+            <CardTitle>مجموع تراکنش‌ها</CardTitle>
           </CardHeader>
           <CardContent className="text-3xl font-semibold">{stats?.total_transactions ?? 0}</CardContent>
         </Card>
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold">Companies</h2>
-        <DataTable data={companies} columns={companyColumns} searchPlaceholder="Search companies" />
+        <h2 className="text-xl font-semibold">شرکت‌ها</h2>
+        <DataTable data={companies} columns={companyColumns} searchPlaceholder="جست‌وجوی شرکت‌ها" />
       </section>
 
       {stats?.chart && stats.chart.length > 0 && (
         <section className="rounded-lg border bg-white p-6">
-          <h2 className="text-xl font-semibold">Activity overview</h2>
-          <p className="text-sm text-muted-foreground">Performance indicators extracted from /admin/stats.</p>
+          <h2 className="text-xl font-semibold">نمای کلی فعالیت</h2>
+          <p className="text-sm text-muted-foreground">شاخص‌های عملکرد استخراج‌شده از مسیر /admin/stats.</p>
           <div className="mt-4 h-72">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={stats.chart}>
@@ -232,20 +230,20 @@ export const AdminDashboard = () => {
         <section className="rounded-lg border bg-white p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold">Employees for {selectedCompany.title}</h3>
-              <p className="text-sm text-muted-foreground">Wallet balances per employee</p>
+              <h3 className="text-lg font-semibold">کارکنان {selectedCompany.title}</h3>
+              <p className="text-sm text-muted-foreground">جزئیات موجودی کیف پول هر کارمند</p>
             </div>
             <Button variant="ghost" onClick={() => setSelectedCompany(null)}>
-              Close
+              بستن
             </Button>
           </div>
           <Table className="mt-4">
             <TableHeader>
               <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>National ID</TableHead>
-                <TableHead>Balance</TableHead>
+                <TableHead>شناسه</TableHead>
+                <TableHead>نام</TableHead>
+                <TableHead>کد ملی</TableHead>
+                <TableHead>موجودی</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -263,27 +261,27 @@ export const AdminDashboard = () => {
       )}
 
       <section>
-        <h2 className="text-xl font-semibold">Merchants</h2>
-        <DataTable data={merchants} columns={merchantColumns} searchPlaceholder="Search merchants" />
+        <h2 className="text-xl font-semibold">پذیرندگان</h2>
+        <DataTable data={merchants} columns={merchantColumns} searchPlaceholder="جست‌وجوی پذیرندگان" />
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold">Payout requests</h2>
-        <DataTable data={payouts} columns={payoutColumns} searchPlaceholder="Search payouts" />
+        <h2 className="text-xl font-semibold">درخواست‌های تسویه</h2>
+        <DataTable data={payouts} columns={payoutColumns} searchPlaceholder="جست‌وجوی درخواست‌های تسویه" />
       </section>
 
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold">Transactions</h2>
-            <p className="text-sm text-muted-foreground">Filter by date and export as CSV.</p>
+            <h2 className="text-xl font-semibold">تراکنش‌ها</h2>
+            <p className="text-sm text-muted-foreground">فیلتر بر اساس تاریخ و دریافت خروجی CSV.</p>
           </div>
           <Button onClick={() => exportToCsv('transactions.csv', transactions)} variant="outline">
-            Export CSV
+            دریافت CSV
           </Button>
         </div>
         <DateRangePicker onChange={setDateFilter} />
-        <DataTable data={transactions} columns={transactionColumns} searchPlaceholder="Search transactions" />
+        <DataTable data={transactions} columns={transactionColumns} searchPlaceholder="جست‌وجوی تراکنش‌ها" />
       </section>
     </DashboardLayout>
   );

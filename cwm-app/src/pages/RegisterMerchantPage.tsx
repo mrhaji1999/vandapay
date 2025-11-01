@@ -8,13 +8,13 @@ import { Button } from '../components/ui/button';
 import { apiClient } from '../api/client';
 
 const FIELDS: { name: string; label: string; type?: string }[] = [
-  { name: 'full_name', label: 'Full name' },
-  { name: 'store_name', label: 'Store name' },
-  { name: 'store_address', label: 'Store address' },
-  { name: 'phone', label: 'Phone' },
-  { name: 'email', label: 'Email', type: 'email' },
-  { name: 'mobile', label: 'Mobile' },
-  { name: 'password', label: 'Password', type: 'password' }
+  { name: 'full_name', label: 'نام و نام خانوادگی' },
+  { name: 'store_name', label: 'نام فروشگاه' },
+  { name: 'store_address', label: 'آدرس فروشگاه' },
+  { name: 'phone', label: 'تلفن ثابت' },
+  { name: 'email', label: 'ایمیل', type: 'email' },
+  { name: 'mobile', label: 'شماره همراه' },
+  { name: 'password', label: 'رمز عبور', type: 'password' }
 ];
 
 export const RegisterMerchantPage = () => {
@@ -36,12 +36,15 @@ export const RegisterMerchantPage = () => {
     setLoading(true);
     try {
       await apiClient.post('/public/merchant/register', payload);
-      toast.success('Registration successful. Please sign in.');
+      toast.success('ثبت‌نام با موفقیت انجام شد. لطفاً وارد شوید.');
       navigate('/login', { replace: true });
     } catch (error) {
       const status = (error as any)?.response?.status;
       if (status === 500 || status === 404) {
-        toast.error('Registration service is temporarily unavailable.');
+        toast.error('خدمت ثبت‌نام موقتاً در دسترس نیست.');
+      } else {
+        const message = (error as any)?.response?.data?.message;
+        toast.error(message ?? 'ثبت‌نام با خطا مواجه شد. لطفاً دوباره تلاش کنید.');
       }
     } finally {
       setLoading(false);
@@ -64,7 +67,7 @@ export const RegisterMerchantPage = () => {
           </div>
         ))}
         <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? 'Submitting…' : 'Submit'}
+          {loading ? 'در حال ارسال…' : 'ارسال'}
         </Button>
       </form>
     </AuthLayout>

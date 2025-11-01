@@ -30,11 +30,11 @@ export const AdminTransactionsPage = () => {
   });
 
   const columns: Column<Transaction>[] = [
-    { key: 'id', header: 'ID' },
-    { key: 'type', header: 'Type' },
-    { key: 'amount', header: 'Amount' },
-    { key: 'created_at', header: 'Date' },
-    { key: 'description', header: 'Description' }
+    { key: 'id', header: 'شناسه' },
+    { key: 'type', header: 'نوع' },
+    { key: 'amount', header: 'مبلغ' },
+    { key: 'created_at', header: 'تاریخ' },
+    { key: 'description', header: 'توضیحات' }
   ];
 
   return (
@@ -42,16 +42,16 @@ export const AdminTransactionsPage = () => {
       <section className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold">Transactions report</h1>
-            <p className="text-sm text-muted-foreground">Review, filter, and export wallet transactions.</p>
+            <h1 className="text-2xl font-semibold">گزارش تراکنش‌ها</h1>
+            <p className="text-sm text-muted-foreground">تراکنش‌های کیف پول را بررسی، فیلتر و خروجی بگیرید.</p>
           </div>
           <Button variant="outline" onClick={() => exportToCsv('admin-transactions.csv', transactions)} disabled={!transactions.length}>
-            Export CSV
+            دریافت CSV
           </Button>
         </div>
         <DateRangePicker onChange={setFilters} />
-        <DataTable data={transactions} columns={columns} searchPlaceholder="Search transactions" />
-        {isFetching && <p className="text-sm text-muted-foreground">Loading latest data…</p>}
+        <DataTable data={transactions} columns={columns} searchPlaceholder="جست‌وجوی تراکنش‌ها" />
+        {isFetching && <p className="text-sm text-muted-foreground">در حال دریافت آخرین داده‌ها…</p>}
       </section>
     </DashboardLayout>
   );

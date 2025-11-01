@@ -54,7 +54,7 @@ export const MerchantDashboard = () => {
       await apiClient.post('/payment/request', payload);
     },
     onSuccess: () => {
-      toast.success('OTP sent to employee');
+      toast.success('رمز یکبار مصرف برای کارمند ارسال شد.');
       queryClient.invalidateQueries({ queryKey: ['merchant', 'transactions'] });
     }
   });
@@ -64,7 +64,7 @@ export const MerchantDashboard = () => {
       await apiClient.post('/payout/request', payload);
     },
     onSuccess: () => {
-      toast.success('Payout request submitted');
+      toast.success('درخواست تسویه ثبت شد.');
       queryClient.invalidateQueries({ queryKey: ['merchant', 'payout-status'] });
     }
   });
@@ -102,7 +102,7 @@ export const MerchantDashboard = () => {
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Wallet balance</CardTitle>
+            <CardTitle>موجودی کیف پول</CardTitle>
           </CardHeader>
           <CardContent className="text-3xl font-semibold">{balance?.balance ?? 0}</CardContent>
         </Card>
@@ -111,20 +111,20 @@ export const MerchantDashboard = () => {
       <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Request payment from employee</CardTitle>
+            <CardTitle>درخواست پرداخت از کارمند</CardTitle>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={handlePaymentRequest}>
               <div className="space-y-2">
-                <Label htmlFor="national_id">Employee national ID</Label>
+                <Label htmlFor="national_id">کد ملی کارمند</Label>
                 <Input id="national_id" name="national_id" required placeholder="1234567890" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="amount">Amount</Label>
+                <Label htmlFor="amount">مبلغ</Label>
                 <Input id="amount" name="amount" type="number" required min={0} step={1000} />
               </div>
               <Button type="submit" className="w-full" disabled={paymentLoading}>
-                {paymentLoading ? 'Requesting…' : 'Request payment'}
+                {paymentLoading ? 'در حال ارسال…' : 'ثبت درخواست پرداخت'}
               </Button>
             </form>
           </CardContent>
@@ -132,20 +132,20 @@ export const MerchantDashboard = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Request payout</CardTitle>
+            <CardTitle>درخواست تسویه</CardTitle>
           </CardHeader>
           <CardContent>
             <form className="space-y-4" onSubmit={handlePayoutRequest}>
               <div className="space-y-2">
-                <Label htmlFor="payout-amount">Amount</Label>
+                <Label htmlFor="payout-amount">مبلغ</Label>
                 <Input id="payout-amount" name="amount" type="number" required min={0} step={1000} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="bank_account">Bank account</Label>
+                <Label htmlFor="bank_account">شماره حساب/شبا</Label>
                 <Input id="bank_account" name="bank_account" required placeholder="IRxxxxxxxxxxxx" />
               </div>
               <Button type="submit" className="w-full" disabled={payoutLoading}>
-                {payoutLoading ? 'Submitting…' : 'Submit payout request'}
+                {payoutLoading ? 'در حال ارسال…' : 'ثبت درخواست تسویه'}
               </Button>
             </form>
           </CardContent>
@@ -153,21 +153,21 @@ export const MerchantDashboard = () => {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold">Recent transactions</h2>
+        <h2 className="text-xl font-semibold">آخرین تراکنش‌ها</h2>
         <Table className="mt-4">
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Date</TableHead>
+              <TableHead>شناسه</TableHead>
+              <TableHead>نوع</TableHead>
+              <TableHead>مبلغ</TableHead>
+              <TableHead>تاریخ</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {transactions.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  No transactions recorded.
+                  تراکنشی ثبت نشده است.
                 </TableCell>
               </TableRow>
             ) : (
@@ -185,21 +185,21 @@ export const MerchantDashboard = () => {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold">Payout status</h2>
+        <h2 className="text-xl font-semibold">وضعیت تسویه‌ها</h2>
         <Table className="mt-4">
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Date</TableHead>
+              <TableHead>شناسه</TableHead>
+              <TableHead>مبلغ</TableHead>
+              <TableHead>وضعیت</TableHead>
+              <TableHead>تاریخ</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {payoutStatus.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  No payout requests yet.
+                  هنوز درخواستی برای تسویه ثبت نشده است.
                 </TableCell>
               </TableRow>
             ) : (

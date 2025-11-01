@@ -20,7 +20,7 @@ export function DataTable<T extends Record<string, any>>({
   data,
   columns,
   pageSize = 10,
-  searchPlaceholder = 'Search...'
+  searchPlaceholder = 'جست‌وجو...'
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -62,7 +62,7 @@ export function DataTable<T extends Record<string, any>>({
             {paginated.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="text-center text-muted-foreground">
-                  No data available
+                  داده‌ای برای نمایش وجود ندارد
                 </TableCell>
               </TableRow>
             ) : (
@@ -82,11 +82,11 @@ export function DataTable<T extends Record<string, any>>({
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
-            Page {currentPage} of {totalPages}
+            صفحه {currentPage} از {totalPages}
           </p>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              قبلی
             </Button>
             <Button
               variant="outline"
@@ -94,7 +94,7 @@ export function DataTable<T extends Record<string, any>>({
               disabled={currentPage === totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              بعدی
             </Button>
           </div>
         </div>

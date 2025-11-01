@@ -12,7 +12,7 @@ export const DateRangePicker = ({ onChange }: Props) => {
   return (
     <div className="flex flex-wrap items-end gap-4">
       <div className="flex flex-col space-y-1">
-        <span className="text-sm font-medium">From</span>
+        <span className="text-sm font-medium">از تاریخ</span>
         <Input
           type="date"
           value={from}
@@ -23,7 +23,7 @@ export const DateRangePicker = ({ onChange }: Props) => {
         />
       </div>
       <div className="flex flex-col space-y-1">
-        <span className="text-sm font-medium">To</span>
+        <span className="text-sm font-medium">تا تاریخ</span>
         <Input
           type="date"
           value={to}

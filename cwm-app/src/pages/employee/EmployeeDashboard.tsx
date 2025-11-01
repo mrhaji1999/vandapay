@@ -39,7 +39,7 @@ export const EmployeeDashboard = () => {
       await apiClient.post('/payment/confirm', payload);
     },
     onSuccess: () => {
-      toast.success('Payment confirmed');
+      toast.success('پرداخت با موفقیت تأیید شد.');
       queryClient.invalidateQueries({ queryKey: ['employee', 'balance'] });
       queryClient.invalidateQueries({ queryKey: ['employee', 'transactions'] });
     }
@@ -50,36 +50,36 @@ export const EmployeeDashboard = () => {
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Wallet balance</CardTitle>
+            <CardTitle>موجودی کیف پول</CardTitle>
           </CardHeader>
           <CardContent className="text-3xl font-semibold">{balance?.balance ?? 0}</CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Actions</CardTitle>
+            <CardTitle>عملیات</CardTitle>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => setConfirmOpen(true)}>Confirm payment</Button>
+            <Button onClick={() => setConfirmOpen(true)}>تأیید پرداخت</Button>
           </CardContent>
         </Card>
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold">Transaction history</h2>
+        <h2 className="text-xl font-semibold">تاریخچه تراکنش‌ها</h2>
         <Table className="mt-4">
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Date</TableHead>
+              <TableHead>شناسه</TableHead>
+              <TableHead>نوع</TableHead>
+              <TableHead>مبلغ</TableHead>
+              <TableHead>تاریخ</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {transactions.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  No transactions yet.
+                  هنوز تراکنشی ثبت نشده است.
                 </TableCell>
               </TableRow>
             ) : (

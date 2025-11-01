@@ -7,9 +7,12 @@ This Vite + React 18 project implements the multi-role dashboard for the Company
 ```bash
 npm install
 cp .env.example .env.local
-# update VITE_API_BASE_URL with your WordPress URL
+# مقدار VITE_API_BASE_URL را با دامنه وردپرس خود به‌روزرسانی کنید
 npm run dev
 ```
+
+> **نکته:** در صورتی که متغیر محیطی `VITE_API_BASE_URL` تنظیم نشده باشد، برنامه به صورت خودکار از نشانی دامنه فعلی
+> به‌همراه مسیر `/wp-json/cwm/v1` استفاده می‌کند. برای اتصال به دامنه‌ای متفاوت، مقدار متغیر محیطی را حتماً مشخص کنید.
 
 The app ships with:
 

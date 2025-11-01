@@ -47,7 +47,7 @@ export const CompanyDashboard = () => {
   const statusMessage = useMemo(() => {
     return (
       profile?.status_message ??
-      'Your company is pending admin approval. We will notify you once it is approved.'
+      'شرکت شما در انتظار تأیید مدیر است. پس از تأیید از طریق سامانه اطلاع‌رسانی می‌شود.'
     );
   }, [profile]);
 
@@ -56,7 +56,7 @@ export const CompanyDashboard = () => {
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Company status</CardTitle>
+            <CardTitle>وضعیت شرکت</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">{statusMessage}</p>
@@ -64,35 +64,35 @@ export const CompanyDashboard = () => {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Account</CardTitle>
+            <CardTitle>اطلاعات حساب</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm">
-              <span className="font-medium">Company:</span> {profile?.company_name ?? user?.name ?? '—'}
+              <span className="font-medium">شرکت:</span> {profile?.company_name ?? user?.name ?? '—'}
             </p>
             <p className="text-sm">
-              <span className="font-medium">Email:</span> {user?.email ?? '—'}
+              <span className="font-medium">ایمیل:</span> {user?.email ?? '—'}
             </p>
           </CardContent>
         </Card>
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold">Employees</h2>
+        <h2 className="text-xl font-semibold">کارکنان</h2>
         <Table className="mt-4">
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>National ID</TableHead>
-              <TableHead>Balance</TableHead>
+              <TableHead>شناسه</TableHead>
+              <TableHead>نام</TableHead>
+              <TableHead>کد ملی</TableHead>
+              <TableHead>موجودی</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {employees.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  No employees found for your company yet.
+                  هنوز کارمندی برای شرکت شما ثبت نشده است.
                 </TableCell>
               </TableRow>
             ) : (
@@ -110,21 +110,21 @@ export const CompanyDashboard = () => {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold">Transactions</h2>
+        <h2 className="text-xl font-semibold">تراکنش‌ها</h2>
         <Table className="mt-4">
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Amount</TableHead>
-              <TableHead>Date</TableHead>
+              <TableHead>شناسه</TableHead>
+              <TableHead>نوع</TableHead>
+              <TableHead>مبلغ</TableHead>
+              <TableHead>تاریخ</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {transactions.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="text-center text-muted-foreground">
-                  No transactions available.
+                  تراکنشی برای نمایش وجود ندارد.
                 </TableCell>
               </TableRow>
             ) : (

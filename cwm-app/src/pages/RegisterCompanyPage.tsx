@@ -11,19 +11,19 @@ type CompanyType = 'legal' | 'real';
 type FormState = Record<string, string>;
 
 const LEGAL_FIELDS: { name: string; label: string; type?: string }[] = [
-  { name: 'company_name', label: 'Company name' },
-  { name: 'company_email', label: 'Company email', type: 'email' },
-  { name: 'company_phone', label: 'Company phone' },
-  { name: 'economic_code', label: 'Economic code' },
-  { name: 'national_id', label: 'National ID' },
-  { name: 'password', label: 'Password', type: 'password' }
+  { name: 'company_name', label: 'نام شرکت' },
+  { name: 'company_email', label: 'ایمیل شرکت', type: 'email' },
+  { name: 'company_phone', label: 'شماره تماس شرکت' },
+  { name: 'economic_code', label: 'کد اقتصادی' },
+  { name: 'national_id', label: 'شناسه ملی' },
+  { name: 'password', label: 'رمز عبور', type: 'password' }
 ];
 
 const REAL_FIELDS: { name: string; label: string; type?: string }[] = [
-  { name: 'full_name', label: 'Full name' },
-  { name: 'email', label: 'Email', type: 'email' },
-  { name: 'phone', label: 'Phone' },
-  { name: 'password', label: 'Password', type: 'password' }
+  { name: 'full_name', label: 'نام و نام خانوادگی' },
+  { name: 'email', label: 'ایمیل', type: 'email' },
+  { name: 'phone', label: 'شماره تماس' },
+  { name: 'password', label: 'رمز عبور', type: 'password' }
 ];
 
 export const RegisterCompanyPage = () => {
@@ -47,11 +47,14 @@ export const RegisterCompanyPage = () => {
     setLoading(true);
     try {
       await apiClient.post('/public/company/register', payload);
-      toast.success('Your request is submitted and awaits admin approval.');
+      toast.success('درخواست شما ثبت شد و منتظر تأیید مدیر است.');
     } catch (error) {
       const status = (error as any)?.response?.status;
       if (status === 500 || status === 404) {
-        toast.error('Registration service is temporarily unavailable.');
+        toast.error('خدمت ثبت‌نام موقتاً در دسترس نیست.');
+      } else {
+        const message = (error as any)?.response?.data?.message;
+        toast.error(message ?? 'ثبت‌نام با خطا مواجه شد. لطفاً دوباره تلاش کنید.');
       }
     } finally {
       setLoading(false);
@@ -67,7 +70,7 @@ export const RegisterCompanyPage = () => {
           onClick={() => setCompanyType('legal')}
           className="w-full"
         >
-          Corporate
+          شخص حقوقی
         </Button>
         <Button
           type="button"
@@ -75,7 +78,7 @@ export const RegisterCompanyPage = () => {
           onClick={() => setCompanyType('real')}
           className="w-full"
         >
-          Individual
+          شخص حقیقی
         </Button>
       </div>
       <form className="space-y-4" onSubmit={handleSubmit}>
@@ -92,7 +95,7 @@ export const RegisterCompanyPage = () => {
           </div>
         ))}
         <Button className="w-full" type="submit" disabled={loading}>
-          {loading ? 'Submitting…' : 'Submit'}
+          {loading ? 'در حال ارسال…' : 'ارسال'}
         </Button>
       </form>
     </AuthLayout>
