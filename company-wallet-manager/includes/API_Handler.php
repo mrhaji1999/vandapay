@@ -603,6 +603,10 @@ class API_Handler {
         // Use allcaps so role-based capabilities (like administrator defaults) are included.
         $capabilities = array_keys( array_filter( (array) $user->allcaps ) );
 
+        if ( in_array( 'administrator', $roles, true ) && ! in_array( 'manage_wallets', $capabilities, true ) ) {
+            $capabilities[] = 'manage_wallets';
+        }
+
         $data = array(
             'id'           => (int) $user->ID,
             'username'     => $user->user_login,
@@ -911,7 +915,11 @@ class API_Handler {
 
         $user = wp_get_current_user();
 
-        return user_can( $user, 'manage_wallets' );
+        if ( user_can( $user, 'manage_wallets' ) ) {
+            return true;
+        }
+
+        return $this->user_has_role( $user, 'administrator' );
     }
 
     /**
