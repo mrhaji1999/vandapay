@@ -816,13 +816,25 @@ class API_Handler {
 
         $normalized_headers = $this->normalize_csv_headers( $header_row );
 
-        if ( ! in_array( 'email', $normalized_headers, true ) && ! in_array( 'national_id', $normalized_headers, true ) ) {
+        // حداقل یکی از شناسهD0ها باید باشد: کد ملی یا ایمیل یا شماره همراه
+        if (
+            ! in_array( 'email', $normalized_headers, true )
+            && ! in_array( 'national_id', $normalized_headers, true )
+            && ! in_array( 'mobile', $normalized_headers, true )
+        ) {
             fclose( $handle );
-            return new WP_Error( 'cwm_csv_missing_identifiers', __( 'فایل باید شامل ستون ایمیل یا کد ملی برای هر کارمند باشد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+            return new WP_Error( 'cwm_csv_missing_identifiers', __( 'فایل باید حداقل شامل یکی از ستونD0های کد ملی، ایمیل یا شماره همراه باشد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
         }
 
         $wallet = new Wallet_System();
         $logger = new Transaction_Logger();
+
+        // Optional bulk credit amount to add to every processed employee
+        $bulk_amount_param = $request->get_param( 'amount' );
+        $bulk_credit_amount = $this->parse_decimal_value( $bulk_amount_param );
+        if ( null !== $bulk_credit_amount && $bulk_credit_amount < 0 ) {
+            return new WP_Error( 'cwm_invalid_amount', __( 'مبلغ اعتباردهی نمیD0تواند منفی باشد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
 
         $results = [
             'processed'          => 0,
@@ -845,10 +857,10 @@ class API_Handler {
 
             $employee_data = $this->map_csv_row_to_employee( $row, $normalized_headers );
 
-            if ( empty( $employee_data['email'] ) && empty( $employee_data['national_id'] ) ) {
+            if ( empty( $employee_data['email'] ) && empty( $employee_data['national_id'] ) && empty( $employee_data['mobile'] ) ) {
                 $results['errors'][] = [
                     'row'     => $row_number,
-                    'message' => __( 'ستون ایمیل یا کد ملی برای این ردیف خالی است.', 'company-wallet-manager' ),
+                    'message' => __( 'ستون کد ملی، ایمیل یا شماره همراه برای این ردیف خالی است.', 'company-wallet-manager' ),
                 ];
                 continue;
             }
@@ -866,12 +878,12 @@ class API_Handler {
                 continue;
             }
 
-            $user = $this->find_employee_user( $email, $national_id );
+            $user = $this->find_employee_user( $email, $national_id, $mobile );
 
             $created = false;
 
             if ( ! $user ) {
-                $user_id = $this->create_employee_user( $email, $name );
+                $user_id = $this->create_employee_user( $email, $name, $mobile, $national_id );
 
                 if ( is_wp_error( $user_id ) ) {
                     $results['errors'][] = [
@@ -941,6 +953,35 @@ class API_Handler {
 
             if ( $name ) {
                 $this->maybe_update_user_name_fields( $user_id, $name );
+            }
+
+            // Apply optional bulk credit amount for each employee
+            if ( null !== $bulk_credit_amount && $bulk_credit_amount > 0 ) {
+                $credited = $wallet->update_balance( $user_id, $bulk_credit_amount );
+                if ( $credited ) {
+                    $results['balances_adjusted']++;
+                    $logger->log(
+                        'admin_bulk_credit',
+                        0,
+                        $user_id,
+                        $bulk_credit_amount,
+                        'completed',
+                        [
+                            'context'  => 'employee_import',
+                            'metadata' => [
+                                'company_id' => $company_id,
+                                'row'        => $row_number,
+                                'source'     => 'csv_upload',
+                                'mode'       => 'bulk_amount',
+                            ],
+                        ]
+                    );
+                } else {
+                    $results['errors'][] = [
+                        'row'     => $row_number,
+                        'message' => __( 'اعتباردهی گروهی به کیف پول با خطا مواجه شد.', 'company-wallet-manager' ),
+                    ];
+                }
             }
 
             if ( isset( $employee_data['balance'] ) && '' !== $employee_data['balance'] ) {
@@ -1255,11 +1296,32 @@ class API_Handler {
     /**
      * Attempt to find an existing employee by email or national ID.
      */
-    protected function find_employee_user( $email, $national_id ) {
+    protected function find_employee_user( $email, $national_id, $mobile = '' ) {
+        // Try by email
         if ( $email ) {
             $user = get_user_by( 'email', $email );
             if ( $user ) {
                 return $user;
+            }
+        }
+
+        // Try by username/mobile
+        if ( $mobile ) {
+            $by_login = get_user_by( 'login', $mobile );
+            if ( $by_login ) {
+                return $by_login;
+            }
+
+            $users = get_users(
+                [
+                    'meta_key'    => 'mobile',
+                    'meta_value'  => $mobile,
+                    'number'      => 1,
+                    'count_total' => false,
+                ]
+            );
+            if ( $users && isset( $users[0] ) ) {
+                return $users[0];
             }
         }
 
@@ -1284,10 +1346,16 @@ class API_Handler {
     /**
      * Create a new employee user account.
      */
-    protected function create_employee_user( $email, $name ) {
-        $login_source = $email ? strstr( $email, '@', true ) : $name;
-
-        if ( empty( $login_source ) ) {
+    protected function create_employee_user( $email, $name, $mobile = '', $national_id = '' ) {
+        // Username policy: prefer mobile as username; fallback to email local-part; else name; else 'employee'
+        $login_source = '';
+        if ( $mobile ) {
+            $login_source = $mobile;
+        } elseif ( $email ) {
+            $login_source = strstr( $email, '@', true );
+        } elseif ( $name ) {
+            $login_source = $name;
+        } else {
             $login_source = 'employee';
         }
 
@@ -1298,10 +1366,15 @@ class API_Handler {
 
         $username = $login_source;
         $suffix   = 1;
-
         while ( username_exists( $username ) ) {
             $username = $login_source . $suffix;
             $suffix++;
+        }
+
+        // Email policy: if not provided, and national_id exists, synthesize email from national_id
+        if ( empty( $email ) && $national_id ) {
+            // You may change the domain if needed
+            $email = $national_id . '@example.com';
         }
 
         $user_data = [
@@ -1325,7 +1398,21 @@ class API_Handler {
             }
         }
 
-        return wp_insert_user( $user_data );
+        $new_user_id = wp_insert_user( $user_data );
+
+        if ( is_wp_error( $new_user_id ) ) {
+            return $new_user_id;
+        }
+
+        // Persist mobile and national_id if available
+        if ( $mobile ) {
+            update_user_meta( $new_user_id, 'mobile', $mobile );
+        }
+        if ( $national_id ) {
+            update_user_meta( $new_user_id, 'national_id', $national_id );
+        }
+
+        return $new_user_id;
     }
 
     /**
@@ -1591,33 +1678,59 @@ class API_Handler {
         global $wpdb;
 
         $merchant_id = get_current_user_id();
-        $national_id = sanitize_text_field( $request->get_param( 'employee_national_id' ) );
+        // Accept multiple aliases for better compatibility with clients
+        $national_id = sanitize_text_field( $request->get_param( 'employee_national_id' ) ?: $request->get_param( 'national_id' ) ?: $request->get_param( 'nid' ) );
+        $mobile      = sanitize_text_field( $request->get_param( 'mobile' ) ?: $request->get_param( 'employee_mobile' ) );
         $amount      = (float) $request->get_param( 'amount' );
 
         if ( $amount <= 0 ) {
             return new WP_Error( 'cwm_invalid_amount', __( 'Amount must be greater than zero.', 'company-wallet-manager' ), [ 'status' => 400 ] );
         }
 
-        $employee = get_users(
-            [
-                'meta_query' => [
-                    'relation' => 'OR',
-                    [
-                        'key'   => 'cwm_national_id',
-                        'value' => $national_id,
+        // Try by national_id first (both meta keys), otherwise by mobile meta/username
+        $employee = [];
+        if ( $national_id ) {
+            $employee = get_users(
+                [
+                    'meta_query' => [
+                        'relation' => 'OR',
+                        [
+                            'key'   => 'cwm_national_id',
+                            'value' => $national_id,
+                        ],
+                        [
+                            'key'   => 'national_id',
+                            'value' => $national_id,
+                        ],
                     ],
+                    'number' => 1,
+                    'fields' => 'ID',
+                ]
+            );
+        }
+
+        if ( empty( $employee ) && $mobile ) {
+            $by_login = get_user_by( 'login', $mobile );
+            if ( $by_login ) {
+                $employee = [ $by_login->ID ];
+            } else {
+                $found = get_users(
                     [
-                        'key'   => 'national_id',
-                        'value' => $national_id,
-                    ],
-                ],
-                'number' => 1,
-                'fields' => 'ID',
-            ]
-        );
+                        'meta_key'    => 'mobile',
+                        'meta_value'  => $mobile,
+                        'number'      => 1,
+                        'fields'      => 'ID',
+                        'count_total' => false,
+                    ]
+                );
+                if ( $found ) {
+                    $employee = $found;
+                }
+            }
+        }
 
         if ( empty( $employee ) ) {
-            return new WP_Error( 'employee_not_found', __( 'Employee not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+            return new WP_Error( 'employee_not_found', __( 'کارمند با مشخصات واردD0شده یافت نشد. (کد ملی/شماره همراه)', 'company-wallet-manager' ), [ 'status' => 404 ] );
         }
 
         $employee_id = (int) $employee[0];
