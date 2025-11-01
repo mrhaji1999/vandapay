@@ -252,6 +252,14 @@ class API_Handler {
             ],
         ] );
 
+        register_rest_route( $this->namespace, '/payment/pending', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_pending_payment_requests' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
+            ],
+        ] );
+
         register_rest_route( $this->namespace, '/wallet/balance', [
             [
                 'methods'             => 'GET',
@@ -1645,6 +1653,61 @@ class API_Handler {
             'token'      => $refresh_token,
             'expires_in' => 14 * DAY_IN_SECONDS,
         ];
+    }
+
+    /**
+     * Retrieve pending payment requests for the authenticated employee.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error
+     */
+    public function get_pending_payment_requests( WP_REST_Request $request ) {
+        unset( $request );
+
+        global $wpdb;
+
+        $employee_id = get_current_user_id();
+        $table       = $wpdb->prefix . 'cwm_payment_requests';
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id, merchant_id, amount, status, created_at FROM $table WHERE employee_id = %d AND status = %s ORDER BY created_at DESC",
+                $employee_id,
+                'pending'
+            ),
+            ARRAY_A
+        );
+
+        if ( null === $rows ) {
+            return new WP_Error( 'cwm_db_error', __( 'خطا در دریافت درخواست‌های پرداخت.', 'company-wallet-manager' ), 500 );
+        }
+
+        $formatted = array_map(
+            function( $row ) {
+                $merchant      = get_userdata( (int) $row['merchant_id'] );
+                $merchant_name = $merchant ? $merchant->display_name : '';
+                $store_name    = $merchant ? get_user_meta( $merchant->ID, '_cwm_store_name', true ) : '';
+
+                if ( empty( $store_name ) && $merchant_name ) {
+                    $store_name = $merchant_name;
+                }
+
+                $created_at = ! empty( $row['created_at'] ) ? mysql_to_rfc3339( $row['created_at'] ) : null;
+
+                return [
+                    'id'            => (int) $row['id'],
+                    'amount'        => (float) $row['amount'],
+                    'status'        => $row['status'],
+                    'merchant_id'   => (int) $row['merchant_id'],
+                    'merchant_name' => $merchant_name,
+                    'store_name'    => is_string( $store_name ) ? $store_name : '',
+                    'created_at'    => $created_at,
+                ];
+            },
+            $rows
+        );
+
+        return rest_ensure_response( $formatted );
     }
 
     /**
