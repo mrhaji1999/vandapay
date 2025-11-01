@@ -114,6 +114,36 @@ class API_Handler {
     }
 
     /**
+     * Validate that a request argument is a string.
+     *
+     * @param mixed            $value   Value to validate.
+     * @param WP_REST_Request  $request Current request.
+     * @param string           $param   Parameter name.
+     *
+     * @return bool
+     */
+    public function validate_string( $value, $request = null, $param = '' ) {
+        unset( $request, $param );
+
+        return is_string( $value );
+    }
+
+    /**
+     * Validate that a request argument is numeric.
+     *
+     * @param mixed            $value   Value to validate.
+     * @param WP_REST_Request  $request Current request.
+     * @param string           $param   Parameter name.
+     *
+     * @return bool
+     */
+    public function validate_numeric( $value, $request = null, $param = '' ) {
+        unset( $request, $param );
+
+        return is_numeric( $value );
+    }
+
+    /**
      * Register the routes for the objects of the controller.
      */
     public function register_routes() {
