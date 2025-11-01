@@ -114,6 +114,36 @@ class API_Handler {
     }
 
     /**
+     * Validate that a request argument is a string.
+     *
+     * @param mixed            $value   Value to validate.
+     * @param WP_REST_Request  $request Current request.
+     * @param string           $param   Parameter name.
+     *
+     * @return bool
+     */
+    public function validate_string( $value, $request = null, $param = '' ) {
+        unset( $request, $param );
+
+        return is_string( $value );
+    }
+
+    /**
+     * Validate that a request argument is numeric.
+     *
+     * @param mixed            $value   Value to validate.
+     * @param WP_REST_Request  $request Current request.
+     * @param string           $param   Parameter name.
+     *
+     * @return bool
+     */
+    public function validate_numeric( $value, $request = null, $param = '' ) {
+        unset( $request, $param );
+
+        return is_numeric( $value );
+    }
+
+    /**
      * Register the routes for the objects of the controller.
      */
     public function register_routes() {
@@ -141,11 +171,11 @@ class API_Handler {
                 'args'                => [
                     'username' => [
                         'required'          => true,
-                        'validate_callback' => 'is_string',
+                        'validate_callback' => [ $this, 'validate_string' ],
                     ],
                     'password' => [
                         'required'          => true,
-                        'validate_callback' => 'is_string',
+                        'validate_callback' => [ $this, 'validate_string' ],
                     ],
                 ],
             ],
@@ -159,7 +189,7 @@ class API_Handler {
                 'args'                => [
                     'refresh_token' => [
                         'required'          => true,
-                        'validate_callback' => 'is_string',
+                        'validate_callback' => [ $this, 'validate_string' ],
                     ],
                 ],
             ],
@@ -173,11 +203,11 @@ class API_Handler {
                 'args'                => [
                     'employee_national_id' => [
                         'required'          => true,
-                        'validate_callback' => 'is_string',
+                        'validate_callback' => [ $this, 'validate_string' ],
                     ],
                     'amount' => [
                         'required'          => true,
-                        'validate_callback' => 'is_numeric',
+                        'validate_callback' => [ $this, 'validate_numeric' ],
                     ],
                 ],
             ],
@@ -191,11 +221,11 @@ class API_Handler {
                 'args'                => [
                     'request_id' => [
                         'required'          => true,
-                        'validate_callback' => 'is_numeric',
+                        'validate_callback' => [ $this, 'validate_numeric' ],
                     ],
                     'otp_code' => [
                         'required'          => true,
-                        'validate_callback' => 'is_string',
+                        'validate_callback' => [ $this, 'validate_string' ],
                     ],
                 ],
             ],
@@ -225,11 +255,11 @@ class API_Handler {
                 'args'                => [
                     'user_id' => [
                         'required'          => true,
-                        'validate_callback' => 'is_numeric',
+                        'validate_callback' => [ $this, 'validate_numeric' ],
                     ],
                     'amount' => [
                         'required'          => true,
-                        'validate_callback' => 'is_numeric',
+                        'validate_callback' => [ $this, 'validate_numeric' ],
                     ],
                 ],
             ],
@@ -243,11 +273,11 @@ class API_Handler {
                 'args'                => [
                     'amount' => [
                         'required'          => true,
-                        'validate_callback' => 'is_numeric',
+                        'validate_callback' => [ $this, 'validate_numeric' ],
                     ],
                     'bank_account' => [
                         'required'          => true,
-                        'validate_callback' => 'is_string',
+                        'validate_callback' => [ $this, 'validate_string' ],
                     ],
                 ],
             ],
@@ -261,7 +291,7 @@ class API_Handler {
                 'args'                => [
                     'status' => [
                         'required'          => false,
-                        'validate_callback' => 'is_string',
+                        'validate_callback' => [ $this, 'validate_string' ],
                     ],
                 ],
             ],
