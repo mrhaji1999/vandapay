@@ -97,6 +97,14 @@ class Settings_Page {
             'cwm-settings-admin',
             'cwm_setting_section_id'
         );
+
+        add_settings_field(
+            'allowed_origins',
+            __( 'Allowed CORS Origins', 'company-wallet-manager' ),
+            array( $this, 'allowed_origins_callback' ),
+            'cwm-settings-admin',
+            'cwm_setting_section_id'
+        );
     }
 
     /**
@@ -114,6 +122,9 @@ class Settings_Page {
 
         if( isset( $input['sms_body_id'] ) )
             $new_input['sms_body_id'] = absint( $input['sms_body_id'] );
+
+        if ( isset( $input['allowed_origins'] ) )
+            $new_input['allowed_origins'] = sanitize_textarea_field( $input['allowed_origins'] );
 
         return $new_input;
     }
@@ -146,6 +157,14 @@ class Settings_Page {
         printf(
             '<input type="text" id="sms_body_id" name="cwm_settings[sms_body_id]" value="%s" />',
             isset( $this->options['sms_body_id'] ) ? esc_attr( $this->options['sms_body_id']) : ''
+        );
+    }
+
+    public function allowed_origins_callback() {
+        printf(
+            '<textarea id="allowed_origins" name="cwm_settings[allowed_origins]" rows="4" cols="50" placeholder="https://app.example.com">%s</textarea><p class="description">%s</p>',
+            isset( $this->options['allowed_origins'] ) ? esc_textarea( $this->options['allowed_origins'] ) : '',
+            esc_html__( 'Comma separated list of fully-qualified origins allowed to call the REST API.', 'company-wallet-manager' )
         );
     }
 }
