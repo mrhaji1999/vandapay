@@ -92,12 +92,12 @@ export const AdminDashboard = () => {
         : undefined;
 
       const normalized: NormalizedStats = {
-        total_companies: raw.total_companies ?? 0,
-        total_merchants: typeof totalMerchants === 'number' ? totalMerchants : 0,
-        total_payouts_pending: typeof pendingPayouts === 'number' ? pendingPayouts : 0,
-        total_transactions: typeof totalTransactions === 'number' ? totalTransactions : 0,
-        total_balance: raw.total_balance,
-        total_wallets: raw.total_wallets,
+        total_companies: Number(raw.total_companies ?? 0),
+        total_merchants: typeof totalMerchants === 'number' ? totalMerchants : Number(raw.total_merchants ?? 0),
+        total_payouts_pending: typeof pendingPayouts === 'number' ? pendingPayouts : Number(raw.total_payouts_pending ?? 0),
+        total_transactions: typeof totalTransactions === 'number' ? totalTransactions : Number(raw.total_transactions ?? 0),
+        total_balance: raw.total_balance !== undefined ? Number(raw.total_balance) : undefined,
+        total_wallets: raw.total_wallets !== undefined ? Number(raw.total_wallets) : undefined,
         chart: chartData
       };
 
