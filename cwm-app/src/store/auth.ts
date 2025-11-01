@@ -52,11 +52,29 @@ export const getToken = () => useAuthStore.getState().token;
 
 export const logout = () => useAuthStore.getState().logout();
 
+type JwtPayload = {
+  role?: Role;
+  roles?: Role[];
+  data?: {
+    user?: {
+      role?: Role;
+      roles?: Role[];
+    };
+  };
+};
+
 export const decodeRole = (token: string): Role | null => {
   try {
-    const payload = jwtDecode<{ role?: Role; roles?: Role[] }>(token);
+    const payload = jwtDecode<JwtPayload>(token);
     if (payload.role) return payload.role;
     if (payload.roles && payload.roles.length > 0) return payload.roles[0];
+
+    const nestedRole = payload.data?.user?.role;
+    if (nestedRole) return nestedRole;
+
+    const nestedRoles = payload.data?.user?.roles;
+    if (nestedRoles && nestedRoles.length > 0) return nestedRoles[0];
+
     return null;
   } catch (error) {
     console.warn('Unable to decode token role', error);

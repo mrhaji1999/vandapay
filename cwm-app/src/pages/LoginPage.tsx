@@ -26,18 +26,25 @@ export const LoginPage = () => {
       const token = response.data.token;
       setToken(token);
       const profile = await fetchProfile();
-      if (!profile) {
-        const role = decodeRole(token);
+      const resolvedRole = decodeRole(token) ?? profile?.role ?? profile?.roles?.[0] ?? null;
+
+      if (!profile && resolvedRole) {
         setUser({
           id: 0,
           username,
           email: '',
-          role: role ?? undefined
+          role: resolvedRole,
+          roles: [resolvedRole]
         });
       }
+
+      if (!resolvedRole) {
+        toast.error('نقش کاربر در توکن یافت نشد. لطفاً تنظیمات افزونه یا دسترسی‌های کاربر را بررسی کنید.');
+        return;
+      }
+
       toast.success('ورود با موفقیت انجام شد');
-      const role = decodeRole(token) ?? profile?.role ?? profile?.roles?.[0] ?? 'employee';
-      navigate(`/${role}`, { replace: true });
+      navigate(`/${resolvedRole}`, { replace: true });
     } catch (error) {
       console.error(error);
       if (axios.isAxiosError(error)) {

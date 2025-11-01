@@ -928,6 +928,21 @@ class API_Handler {
             ],
         ];
 
+        $user = get_userdata( $user_id );
+        if ( $user instanceof \WP_User ) {
+            $roles = array_values( (array) $user->roles );
+
+            if ( ! empty( $roles ) ) {
+                $primary_role = $roles[0];
+
+                $payload['role']  = $primary_role;
+                $payload['roles'] = $roles;
+
+                $payload['data']['user']['role']  = $primary_role;
+                $payload['data']['user']['roles'] = $roles;
+            }
+        }
+
         return [
             'token'      => \Firebase\JWT\JWT::encode( $payload, JWT_AUTH_SECRET_KEY, 'HS256' ),
             'expires_in' => HOUR_IN_SECONDS,
