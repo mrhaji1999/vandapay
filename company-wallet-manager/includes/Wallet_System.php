@@ -54,21 +54,22 @@ class Wallet_System {
         // Check if the user has a wallet.
         $this->get_balance( $user_id );
 
-        // Prevent overdraft.
         if ( $amount < 0 ) {
-            $current_balance = $this->get_balance( $user_id );
-            if ( $current_balance < abs( $amount ) ) {
-                return false;
-            }
+            $affected = $wpdb->query( $wpdb->prepare(
+                "UPDATE $table_name SET balance = balance + %f, updated_at = CURRENT_TIMESTAMP WHERE user_id = %d AND balance >= %f",
+                $amount,
+                $user_id,
+                abs( $amount )
+            ) );
+        } else {
+            $affected = $wpdb->query( $wpdb->prepare(
+                "UPDATE $table_name SET balance = balance + %f, updated_at = CURRENT_TIMESTAMP WHERE user_id = %d",
+                $amount,
+                $user_id
+            ) );
         }
 
-        $wpdb->query( $wpdb->prepare(
-            "UPDATE $table_name SET balance = balance + %f WHERE user_id = %d",
-            $amount,
-            $user_id
-        ) );
-
-        return true;
+        return false !== $affected && 0 !== $affected;
     }
 
     /**
@@ -93,7 +94,6 @@ class Wallet_System {
         $receiver_balance_updated = $this->update_balance( $receiver_id, $amount );
         if ( ! $receiver_balance_updated ) {
             $wpdb->query( 'ROLLBACK' );
-            // Rollback the sender's balance.
             $this->update_balance( $sender_id, $amount );
             return false;
         }

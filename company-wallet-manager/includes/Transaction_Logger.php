@@ -18,10 +18,11 @@ class Transaction_Logger {
      * @param float  $amount The amount of the transaction.
      * @param string $status The status of the transaction (e.g., 'completed', 'pending').
      */
-    public function log( $type, $sender_id, $receiver_id, $amount, $status ) {
+    public function log( $type, $sender_id, $receiver_id, $amount, $status, array $args = array() ) {
         global $wpdb;
 
         $table_name = $wpdb->prefix . 'cwm_transactions';
+        $metadata   = isset( $args['metadata'] ) ? wp_json_encode( $args['metadata'] ) : null;
         $wpdb->insert(
             $table_name,
             array(
@@ -30,6 +31,9 @@ class Transaction_Logger {
                 'receiver_id' => $receiver_id,
                 'amount'      => $amount,
                 'status'      => $status,
+                'context'     => isset( $args['context'] ) ? $args['context'] : null,
+                'related_request' => isset( $args['related_request'] ) ? $args['related_request'] : null,
+                'metadata'    => $metadata,
             )
         );
     }

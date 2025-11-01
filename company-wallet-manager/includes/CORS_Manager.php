@@ -96,10 +96,15 @@ class CORS_Manager {
                 if ( defined( 'CWM_ALLOWED_CORS_ORIGINS' ) ) {
                         $raw = CWM_ALLOWED_CORS_ORIGINS;
                         if ( is_string( $raw ) ) {
-                                $configured = array_map( 'trim', explode( ',', $raw ) );
+                                $configured = array_merge( $configured, array_map( 'trim', explode( ',', $raw ) ) );
                         } elseif ( is_array( $raw ) ) {
-                                $configured = $raw;
+                                $configured = array_merge( $configured, $raw );
                         }
+                }
+
+                $settings = get_option( 'cwm_settings', [] );
+                if ( ! empty( $settings['allowed_origins'] ) ) {
+                        $configured = array_merge( $configured, array_map( 'trim', explode( ',', $settings['allowed_origins'] ) ) );
                 }
 
                 $configured = array_map( [ $this, 'normalize_origin' ], $configured );

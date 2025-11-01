@@ -55,10 +55,13 @@ register_deactivation_hook( __FILE__, 'cwm_deactivate_plugin' );
  * are available and the plugin is loaded at the correct time.
  */
 function cwm_plugin_init() {
-	// Initialize the settings page
-	if ( is_admin() ) {
-		new CWM\Settings_Page();
-	}
+        // Initialize the settings page
+        if ( is_admin() ) {
+                new CWM\Settings_Page();
+        }
+
+        // Custom post type registration.
+        new CWM\Post_Types_Manager();
 
         // Initialize the CORS manager so external dashboards can reach the REST API.
         new CWM\CORS_Manager();
