@@ -312,6 +312,14 @@ class API_Handler {
             ],
         ] );
 
+        register_rest_route( $this->namespace, '/admin/companies/(?P<id>\d+)/employees/import', [
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'import_admin_company_employees' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
         register_rest_route( $this->namespace, '/admin/merchants', [
             [
                 'methods'             => 'GET',
@@ -600,7 +608,21 @@ class API_Handler {
 
         $roles        = array_values( (array) $user->roles );
         $primary_role = ! empty( $roles ) ? $roles[0] : null;
-        $capabilities = array_keys( array_filter( (array) $user->caps ) );
+        // Use allcaps so role-based capabilities (like administrator defaults) are included.
+        $capabilities = array_keys( array_filter( (array) $user->allcaps ) );
+
+        if ( in_array( 'administrator', $roles, true ) && ! in_array( 'manage_wallets', $capabilities, true ) ) {
+            $capabilities[] = 'manage_wallets';
+        }
+
+        $this->debug_log(
+            'Resolved profile data',
+            [
+                'user_id'      => $user->ID,
+                'roles'        => $roles,
+                'capabilities' => $capabilities,
+            ]
+        );
 
         $data = array(
             'id'           => (int) $user->ID,
@@ -733,6 +755,248 @@ class API_Handler {
         }
 
         return $this->respond_with_format( $request, $rows, [ 'id', 'name', 'email', 'balance', 'national_id', 'phone' ], 'company-employees.csv' );
+    }
+
+    /**
+     * Admin endpoint: import or update employees for a company via CSV upload.
+     */
+    public function import_admin_company_employees( WP_REST_Request $request ) {
+        $company_id = (int) $request['id'];
+
+        if ( $company_id <= 0 ) {
+            return new WP_Error( 'cwm_invalid_company', __( 'شناسه شرکت نامعتبر است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $company_post = get_post( $company_id );
+        if ( ! $company_post || 'cwm_company' !== $company_post->post_type ) {
+            return new WP_Error( 'cwm_company_not_found', __( 'شرکت مورد نظر یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $files = $request->get_file_params();
+        $file  = isset( $files['file'] ) ? $files['file'] : ( $files['csv'] ?? null );
+
+        if ( ! $file ) {
+            return new WP_Error( 'cwm_missing_csv', __( 'فایل CSV کارکنان ارسال نشده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        if ( ! empty( $file['error'] ) ) {
+            return new WP_Error(
+                'cwm_csv_upload_error',
+                sprintf( __( 'خطا در بارگذاری فایل (کد %d).', 'company-wallet-manager' ), (int) $file['error'] ),
+                [ 'status' => 400 ]
+            );
+        }
+
+        $tmp_name = isset( $file['tmp_name'] ) ? $file['tmp_name'] : null;
+
+        if ( ! $tmp_name || ! file_exists( $tmp_name ) || ! is_readable( $tmp_name ) ) {
+            return new WP_Error( 'cwm_csv_unreadable', __( 'امکان خواندن فایل CSV وجود ندارد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $handle = fopen( $tmp_name, 'r' );
+
+        if ( false === $handle ) {
+            return new WP_Error( 'cwm_csv_open_failed', __( 'فایل CSV قابل باز شدن نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $first_line = fgets( $handle );
+        if ( false === $first_line ) {
+            fclose( $handle );
+            return new WP_Error( 'cwm_csv_empty', __( 'فایل CSV خالی است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $delimiter = $this->detect_csv_delimiter( $first_line );
+        rewind( $handle );
+
+        $header_row = fgetcsv( $handle, 0, $delimiter );
+        if ( false === $header_row ) {
+            fclose( $handle );
+            return new WP_Error( 'cwm_csv_header_missing', __( 'ردیف سرستون CSV قابل خواندن نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $normalized_headers = $this->normalize_csv_headers( $header_row );
+
+        if ( ! in_array( 'email', $normalized_headers, true ) && ! in_array( 'national_id', $normalized_headers, true ) ) {
+            fclose( $handle );
+            return new WP_Error( 'cwm_csv_missing_identifiers', __( 'فایل باید شامل ستون ایمیل یا کد ملی برای هر کارمند باشد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $wallet = new Wallet_System();
+        $logger = new Transaction_Logger();
+
+        $results = [
+            'processed'          => 0,
+            'created'            => 0,
+            'updated'            => 0,
+            'balances_adjusted'  => 0,
+            'errors'             => [],
+        ];
+
+        $row_number = 1; // header already consumed.
+
+        while ( ( $row = fgetcsv( $handle, 0, $delimiter ) ) !== false ) {
+            $row_number++;
+
+            if ( empty( array_filter( $row, 'strlen' ) ) ) {
+                continue;
+            }
+
+            $results['processed']++;
+
+            $employee_data = $this->map_csv_row_to_employee( $row, $normalized_headers );
+
+            if ( empty( $employee_data['email'] ) && empty( $employee_data['national_id'] ) ) {
+                $results['errors'][] = [
+                    'row'     => $row_number,
+                    'message' => __( 'ستون ایمیل یا کد ملی برای این ردیف خالی است.', 'company-wallet-manager' ),
+                ];
+                continue;
+            }
+
+            $email       = isset( $employee_data['email'] ) ? sanitize_email( $employee_data['email'] ) : '';
+            $national_id = isset( $employee_data['national_id'] ) ? sanitize_text_field( $employee_data['national_id'] ) : '';
+            $mobile      = isset( $employee_data['mobile'] ) ? sanitize_text_field( $employee_data['mobile'] ) : '';
+            $name        = isset( $employee_data['name'] ) ? sanitize_text_field( $employee_data['name'] ) : '';
+
+            if ( $email && ! is_email( $email ) ) {
+                $results['errors'][] = [
+                    'row'     => $row_number,
+                    'message' => __( 'فرمت ایمیل معتبر نیست.', 'company-wallet-manager' ),
+                ];
+                continue;
+            }
+
+            $user = $this->find_employee_user( $email, $national_id );
+
+            $created = false;
+
+            if ( ! $user ) {
+                $user_id = $this->create_employee_user( $email, $name );
+
+                if ( is_wp_error( $user_id ) ) {
+                    $results['errors'][] = [
+                        'row'     => $row_number,
+                        'message' => $user_id->get_error_message(),
+                    ];
+                    continue;
+                }
+
+                $user    = get_user_by( 'id', $user_id );
+                $created = true;
+                $results['created']++;
+            } else {
+                $update_args = [ 'ID' => $user->ID ];
+                $has_updates = false;
+
+                if ( $email && strtolower( $user->user_email ) !== strtolower( $email ) ) {
+                    $update_args['user_email'] = $email;
+                    $has_updates               = true;
+                }
+
+                if ( $name && $user->display_name !== $name ) {
+                    $update_args['display_name'] = $name;
+                    $has_updates                 = true;
+                }
+
+                if ( $has_updates ) {
+                    $updated = wp_update_user( $update_args );
+
+                    if ( is_wp_error( $updated ) ) {
+                        $results['errors'][] = [
+                            'row'     => $row_number,
+                            'message' => $updated->get_error_message(),
+                        ];
+                        continue;
+                    }
+                }
+
+                $results['updated']++;
+            }
+
+            if ( ! $user ) {
+                // Should never happen but guard to avoid notices.
+                $results['errors'][] = [
+                    'row'     => $row_number,
+                    'message' => __( 'امکان ایجاد یا به‌روزرسانی کاربر وجود ندارد.', 'company-wallet-manager' ),
+                ];
+                continue;
+            }
+
+            $user_id = $user->ID;
+
+            // Ensure the employee role is assigned.
+            if ( ! in_array( 'employee', (array) $user->roles, true ) ) {
+                $user->add_role( 'employee' );
+            }
+
+            update_user_meta( $user_id, '_cwm_company_id', $company_id );
+
+            if ( $national_id ) {
+                update_user_meta( $user_id, 'national_id', $national_id );
+            }
+
+            if ( $mobile ) {
+                update_user_meta( $user_id, 'mobile', $mobile );
+            }
+
+            if ( $name ) {
+                $this->maybe_update_user_name_fields( $user_id, $name );
+            }
+
+            if ( isset( $employee_data['balance'] ) && '' !== $employee_data['balance'] ) {
+                $target_balance = $this->parse_decimal_value( $employee_data['balance'] );
+
+                if ( null === $target_balance ) {
+                    $results['errors'][] = [
+                        'row'     => $row_number,
+                        'message' => __( 'مقدار موجودی معتبر نیست.', 'company-wallet-manager' ),
+                    ];
+                } else {
+                    $current_balance = $wallet->get_balance( $user_id );
+                    $delta           = $target_balance - $current_balance;
+
+                    if ( abs( $delta ) >= 0.01 ) {
+                        $updated_balance = $wallet->update_balance( $user_id, $delta );
+
+                        if ( $updated_balance ) {
+                            $results['balances_adjusted']++;
+                            $logger->log(
+                                'admin_adjustment',
+                                0,
+                                $user_id,
+                                abs( $delta ),
+                                'completed',
+                                [
+                                    'context'  => 'employee_import',
+                                    'metadata' => [
+                                        'company_id' => $company_id,
+                                        'change'      => $delta,
+                                        'row'         => $row_number,
+                                        'source'      => 'csv_upload',
+                                    ],
+                                ]
+                            );
+                        } else {
+                            $results['errors'][] = [
+                                'row'     => $row_number,
+                                'message' => __( 'به‌روزرسانی موجودی کیف پول با خطا مواجه شد.', 'company-wallet-manager' ),
+                            ];
+                        }
+                    }
+                }
+            }
+
+            if ( $created && empty( $email ) ) {
+                $results['errors'][] = [
+                    'row'     => $row_number,
+                    'message' => __( 'کاربر بدون ایمیل ایجاد شد. لطفاً برای ارسال اطلاعات ورود، ایمیل را تکمیل کنید.', 'company-wallet-manager' ),
+                ];
+            }
+        }
+
+        fclose( $handle );
+
+        return rest_ensure_response( $results );
     }
 
     /**
@@ -887,6 +1151,228 @@ class API_Handler {
     }
 
     /**
+     * Detect the delimiter used in a CSV line.
+     */
+    protected function detect_csv_delimiter( $line ) {
+        $candidates = [ ',', ';', "\t" ];
+        $counts     = [];
+
+        foreach ( $candidates as $candidate ) {
+            $counts[ $candidate ] = substr_count( $line, $candidate );
+        }
+
+        arsort( $counts );
+        $delimiter = key( $counts );
+
+        return $delimiter ? $delimiter : ',';
+    }
+
+    /**
+     * Normalize CSV headers to predictable keys.
+     */
+    protected function normalize_csv_headers( array $headers ) {
+        $normalized = [];
+
+        foreach ( $headers as $header ) {
+            $normalized[] = $this->normalize_csv_key( $header );
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * Normalize a single header key.
+     */
+    protected function normalize_csv_key( $key ) {
+        $key = strtolower( trim( $key ) );
+        $key = preg_replace( '/^\xEF\xBB\xBF/', '', $key ); // Remove UTF-8 BOM.
+        $key = str_replace( [ '-', ' ', '.' ], '_', $key );
+        $key = preg_replace( '/[^a-z0-9_]/', '', $key );
+
+        switch ( $key ) {
+            case 'fullname':
+            case 'full_name':
+            case 'employee_name':
+            case 'name':
+                return 'name';
+            case 'first_name':
+                return 'first_name';
+            case 'last_name':
+                return 'last_name';
+            case 'emailaddress':
+            case 'email':
+                return 'email';
+            case 'nationalcode':
+            case 'nationalcodeid':
+            case 'nationalid':
+            case 'national_id':
+                return 'national_id';
+            case 'mobilephone':
+            case 'mobile_number':
+            case 'phonenumber':
+            case 'phone':
+            case 'mobile':
+                return 'mobile';
+            case 'amount':
+            case 'wallet':
+            case 'wallet_balance':
+            case 'balance':
+                return 'balance';
+            default:
+                return $key;
+        }
+    }
+
+    /**
+     * Map CSV row values to an associative array using normalized headers.
+     */
+    protected function map_csv_row_to_employee( array $row, array $headers ) {
+        $data = [];
+
+        foreach ( $headers as $index => $key ) {
+            if ( ! isset( $row[ $index ] ) ) {
+                continue;
+            }
+
+            $value = trim( (string) $row[ $index ] );
+
+            if ( '' === $value ) {
+                continue;
+            }
+
+            $data[ $key ] = $value;
+        }
+
+        if ( empty( $data['name'] ) && ( ! empty( $data['first_name'] ) || ! empty( $data['last_name'] ) ) ) {
+            $first         = isset( $data['first_name'] ) ? $data['first_name'] : '';
+            $last          = isset( $data['last_name'] ) ? $data['last_name'] : '';
+            $data['name'] = trim( $first . ' ' . $last );
+        }
+
+        return $data;
+    }
+
+    /**
+     * Attempt to find an existing employee by email or national ID.
+     */
+    protected function find_employee_user( $email, $national_id ) {
+        if ( $email ) {
+            $user = get_user_by( 'email', $email );
+            if ( $user ) {
+                return $user;
+            }
+        }
+
+        if ( $national_id ) {
+            $users = get_users(
+                [
+                    'meta_key'    => 'national_id',
+                    'meta_value'  => $national_id,
+                    'number'      => 1,
+                    'count_total' => false,
+                ]
+            );
+
+            if ( $users && isset( $users[0] ) ) {
+                return $users[0];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Create a new employee user account.
+     */
+    protected function create_employee_user( $email, $name ) {
+        $login_source = $email ? strstr( $email, '@', true ) : $name;
+
+        if ( empty( $login_source ) ) {
+            $login_source = 'employee';
+        }
+
+        $login_source = sanitize_user( $login_source, true );
+        if ( empty( $login_source ) ) {
+            $login_source = 'employee';
+        }
+
+        $username = $login_source;
+        $suffix   = 1;
+
+        while ( username_exists( $username ) ) {
+            $username = $login_source . $suffix;
+            $suffix++;
+        }
+
+        $user_data = [
+            'user_login'   => $username,
+            'user_pass'    => wp_generate_password( 12, true ),
+            'display_name' => $name ? $name : $username,
+            'role'         => 'employee',
+        ];
+
+        if ( $email ) {
+            $user_data['user_email'] = $email;
+        }
+
+        if ( $name ) {
+            $parts = preg_split( '/\s+/', $name, 2 );
+            if ( isset( $parts[0] ) ) {
+                $user_data['first_name'] = $parts[0];
+            }
+            if ( isset( $parts[1] ) ) {
+                $user_data['last_name'] = $parts[1];
+            }
+        }
+
+        return wp_insert_user( $user_data );
+    }
+
+    /**
+     * Update first and last name meta when a display name is provided.
+     */
+    protected function maybe_update_user_name_fields( $user_id, $display_name ) {
+        $parts = preg_split( '/\s+/', $display_name, 2 );
+
+        if ( isset( $parts[0] ) && $parts[0] ) {
+            update_user_meta( $user_id, 'first_name', $parts[0] );
+        }
+
+        if ( isset( $parts[1] ) && $parts[1] ) {
+            update_user_meta( $user_id, 'last_name', $parts[1] );
+        }
+    }
+
+    /**
+     * Parse a decimal value from CSV input.
+     */
+    protected function parse_decimal_value( $value ) {
+        if ( is_numeric( $value ) ) {
+            return (float) $value;
+        }
+
+        if ( ! is_string( $value ) ) {
+            return null;
+        }
+
+        $normalized = str_replace( [ "\xC2\xA0", ' ', '٬' ], '', $value );
+
+        if ( false !== strpos( $normalized, ',' ) && false === strpos( $normalized, '.' ) ) {
+            $normalized = str_replace( ',', '.', $normalized );
+        } else {
+            $normalized = str_replace( ',', '', $normalized );
+        }
+
+        $normalized = preg_replace( '/[^0-9\.-]/', '', $normalized );
+
+        if ( '' === $normalized || '-' === $normalized ) {
+            return null;
+        }
+
+        return (float) $normalized;
+    }
+
+    /**
      * Sum pending payouts for a merchant.
      */
     protected function get_pending_payout_total( $merchant_id ) {
@@ -905,12 +1391,43 @@ class API_Handler {
     public function admin_permission_check( WP_REST_Request $request ) {
         $validation = $this->validate_token( $request );
         if ( is_wp_error( $validation ) ) {
+            $this->debug_log(
+                'Admin permission denied: invalid token',
+                [
+                    'error_code'    => $validation->get_error_code(),
+                    'error_message' => $validation->get_error_message(),
+                ]
+            );
             return false;
         }
 
         $user = wp_get_current_user();
 
-        return user_can( $user, 'manage_wallets' );
+        if ( user_can( $user, 'manage_wallets' ) ) {
+            $this->debug_log(
+                'Admin permission granted via capability',
+                [
+                    'user_id' => $user->ID,
+                    'roles'   => $user->roles,
+                ]
+            );
+            return true;
+        }
+
+        $has_admin_role = $this->user_has_role( $user, 'administrator' );
+
+        $this->debug_log(
+            $has_admin_role
+                ? 'Admin permission granted via administrator role'
+                : 'Admin permission denied: missing capability and role',
+            [
+                'user_id'      => $user->ID,
+                'roles'        => $user->roles,
+                'capabilities' => array_keys( array_filter( (array) $user->allcaps ) ),
+            ]
+        );
+
+        return $has_admin_role;
     }
 
     /**
@@ -1254,5 +1771,18 @@ class API_Handler {
         }
 
         return in_array( $role, (array) $user->roles, true );
+    }
+
+    /**
+     * Write debug information to the error log when WP_DEBUG is enabled.
+     */
+    protected function debug_log( $message, array $context = [] ) {
+        if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+            if ( ! empty( $context ) ) {
+                $message .= ' ' . wp_json_encode( $context );
+            }
+
+            error_log( '[CWM] ' . $message );
+        }
     }
 }
