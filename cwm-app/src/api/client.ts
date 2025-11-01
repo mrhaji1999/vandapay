@@ -30,6 +30,9 @@ if (!configuredBaseUrl) {
   console.info(
     'VITE_API_BASE_URL تنظیم نشده است. در حال تلاش برای استفاده از نشانی پیش‌فرض بر اساس دامنهٔ فعلی.'
   );
+  if (fallbackBaseUrl) {
+    console.info(`نشانی پایهٔ انتخاب‌شده: ${fallbackBaseUrl}`);
+  }
 }
 
 if (!apiBaseUrl) {

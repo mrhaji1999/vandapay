@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { FormEvent, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -39,7 +40,18 @@ export const LoginPage = () => {
       navigate(`/${role}`, { replace: true });
     } catch (error) {
       console.error(error);
-      toast.error('نام کاربری یا رمز عبور نامعتبر است');
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        if (!error.response) {
+          toast.error('امکان برقراری ارتباط با سرور وجود ندارد. لطفاً تنظیمات CORS را بررسی کنید.');
+        } else if (status && status >= 500) {
+          toast.error('سرور با خطای داخلی مواجه شد. لطفاً دقایقی دیگر تلاش کنید.');
+        } else {
+          toast.error('نام کاربری یا رمز عبور نامعتبر است.');
+        }
+      } else {
+        toast.error('ورود با خطا مواجه شد.');
+      }
     } finally {
       setLoading(false);
     }
