@@ -171,11 +171,17 @@ class API_Handler {
                 'args'                => [
                     'username' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_string' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
                     ],
                     'password' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_string' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
                     ],
                 ],
             ],
@@ -189,7 +195,10 @@ class API_Handler {
                 'args'                => [
                     'refresh_token' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_string' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
                     ],
                 ],
             ],
@@ -203,11 +212,17 @@ class API_Handler {
                 'args'                => [
                     'employee_national_id' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_string' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
                     ],
                     'amount' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_numeric' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_numeric( $value );
+                        },
                     ],
                 ],
             ],
@@ -221,11 +236,17 @@ class API_Handler {
                 'args'                => [
                     'request_id' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_numeric' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_numeric( $value );
+                        },
                     ],
                     'otp_code' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_string' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
                     ],
                 ],
             ],
@@ -255,11 +276,17 @@ class API_Handler {
                 'args'                => [
                     'user_id' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_numeric' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_numeric( $value );
+                        },
                     ],
                     'amount' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_numeric' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_numeric( $value );
+                        },
                     ],
                 ],
             ],
@@ -273,11 +300,17 @@ class API_Handler {
                 'args'                => [
                     'amount' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_numeric' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_numeric( $value );
+                        },
                     ],
                     'bank_account' => [
                         'required'          => true,
-                        'validate_callback' => [ $this, 'validate_string' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
                     ],
                 ],
             ],
@@ -291,7 +324,10 @@ class API_Handler {
                 'args'                => [
                     'status' => [
                         'required'          => false,
-                        'validate_callback' => [ $this, 'validate_string' ],
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
                     ],
                 ],
             ],
