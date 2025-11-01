@@ -1,11 +1,16 @@
-export const exportToCsv = <T extends Record<string, unknown>>(filename: string, rows: T[]) => {
+type RowRecord = Record<string, unknown>;
+
+export const exportToCsv = <T extends object>(filename: string, rows: T[]) => {
   if (!rows.length) return;
-  const headers = Object.keys(rows[0]) as (keyof T)[];
+  const headers = Object.keys(rows[0] as RowRecord) as Array<Extract<keyof T, string>>;
   const csvContent = [
     headers.join(','),
     ...rows.map((row) =>
       headers
-        .map((header) => JSON.stringify((row[header] as unknown) ?? ''))
+        .map((header) => {
+          const value = (row as RowRecord)[header];
+          return JSON.stringify(value ?? '');
+        })
         .join(',')
     )
   ].join('\n');
