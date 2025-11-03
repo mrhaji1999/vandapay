@@ -72,6 +72,11 @@ export const getEmployeePendingRequests = async () => {
   return data;
 };
 
+export const getEmployeeWalletSummary = async () => {
+  const { data } = await apiClient.get('/employee/wallet-summary');
+  return data;
+};
+
 export const confirmEmployeePaymentRequest = async (id) => {
   // TODO: implement in WordPress plugin
   const { data } = await apiClient.post(`/employee/payment-requests/${id}/confirm`);

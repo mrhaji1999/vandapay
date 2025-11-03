@@ -20,7 +20,7 @@ const navItems = {
   ],
   employee: [
     { to: '/dashboard/employee', label: 'پیشخوان' },
-    { to: '/dashboard/employee/history', label: 'سوابق (به‌زودی)', disabled: true },
+    { to: '/dashboard/employee/transactions', label: 'سوابق خرید' },
   ],
 };
 

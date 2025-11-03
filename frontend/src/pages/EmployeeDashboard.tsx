@@ -8,6 +8,7 @@ import {
   confirmEmployeePaymentRequest,
   getEmployeePendingRequests,
   getEmployeeTransactions,
+  getEmployeeWalletSummary,
   verifyEmployeePaymentOtp,
 } from '../services/api.js';
 import { formatCurrency, formatDate } from '../utils/format.js';
@@ -15,7 +16,9 @@ import { useToast } from '../hooks/useToast.jsx';
 
 export default function EmployeeDashboard() {
   const { showToast } = useToast();
-  const [wallet, setWallet] = useState({ balance: 0 });
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [categoryLimits, setCategoryLimits] = useState([]);
+  const [loadingWallet, setLoadingWallet] = useState(false);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -26,16 +29,31 @@ export default function EmployeeDashboard() {
   const [otpCode, setOtpCode] = useState('');
 
   useEffect(() => {
+    fetchWalletSummary();
     fetchRequests();
     fetchTransactions();
   }, []);
+
+  const fetchWalletSummary = async () => {
+    setLoadingWallet(true);
+    try {
+      const data = await getEmployeeWalletSummary();
+      if (data) {
+        setWalletBalance(data.wallet_balance ?? 0);
+        setCategoryLimits(Array.isArray(data.categories) ? data.categories : []);
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoadingWallet(false);
+    }
+  };
 
   const fetchRequests = async () => {
     setLoadingRequests(true);
     try {
       const data = await getEmployeePendingRequests();
       setPendingRequests(data.items || data || []);
-      setWallet({ balance: data.wallet_balance ?? wallet.balance });
     } catch (error) {
       console.error(error);
     } finally {
@@ -75,6 +93,7 @@ export default function EmployeeDashboard() {
       setOtpCode('');
       setOtpModalOpen(false);
       setSelectedRequest(null);
+      fetchWalletSummary();
       fetchRequests();
       fetchTransactions();
     } catch (error) {
@@ -113,7 +132,11 @@ export default function EmployeeDashboard() {
       { label: 'پذیرنده', accessor: 'merchant_name' },
       { label: 'مبلغ', accessor: 'amount', render: (row) => formatCurrency(row.amount) },
       { label: 'تاریخ', accessor: 'created_at', render: (row) => formatDate(row.created_at) },
-      { label: 'وضعیت', accessor: 'status', render: (row) => <Badge status={row.status}>{row.status_label || row.status}</Badge> },
+      {
+        label: 'وضعیت',
+        accessor: 'status',
+        render: (row) => <Badge status={row.status}>{row.status_label || row.status}</Badge>,
+      },
     ],
     [],
   );
@@ -121,7 +144,30 @@ export default function EmployeeDashboard() {
   return (
     <div className="employee-dashboard">
       <section className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-        <DashboardCard title="موجودی کیف پول" value={formatCurrency(wallet.balance)} />
+        <DashboardCard title="موجودی کیف پول" value={formatCurrency(walletBalance)} />
+        {loadingWallet && (
+          <div className="card">
+            <div className="empty-state small">
+              <span>در حال بارگذاری دسته‌بندی‌ها...</span>
+            </div>
+          </div>
+        )}
+        {!loadingWallet && categoryLimits.length === 0 && (
+          <div className="card">
+            <div className="empty-state small">
+              <span>هنوز سقف‌بندی‌ای برای شما ثبت نشده است.</span>
+            </div>
+          </div>
+        )}
+        {!loadingWallet &&
+          categoryLimits.map((category) => (
+            <DashboardCard
+              key={category.category_id}
+              title={category.category_name}
+              value={formatCurrency(category.remaining)}
+              footer={`سقف: ${formatCurrency(category.limit)} | مصرف شده: ${formatCurrency(category.spent)}`}
+            />
+          ))}
       </section>
 
       <section className="card">
