@@ -21,8 +21,8 @@ interface MerchantRow {
   balance: number;
   store_name?: string;
   pending_payouts: number;
-  categories: Category[];
-  category_ids: number[];
+  categories?: Category[];
+  category_ids?: number[];
 }
 
 interface MerchantCategoriesResponse {
@@ -169,7 +169,11 @@ export const AdminMerchantsPage = () => {
               </TableHeader>
               <TableBody>
                 {merchants.map((merchant) => {
-                  const categoryNames = merchant.categories.map((category) => category.name).join('، ');
+                  const categories = Array.isArray(merchant.categories) ? merchant.categories : [];
+                  const categoryNames = categories
+                    .map((category) => category?.name)
+                    .filter((name): name is string => Boolean(name && name.length > 0))
+                    .join('، ');
                   return (
                     <TableRow key={merchant.id}>
                       <TableCell className="text-right font-medium">
