@@ -281,7 +281,7 @@ export const MerchantDashboard = () => {
     event.currentTarget.reset();
   };
 
-  const assignedCategoryOptions = useMemo(() => {
+  const categorySelectOptions = useMemo(() => {
     if (assignedCategories.length === 0) {
       return [<option key="none" value="">هیچ دسته‌بندی فعالی ثبت نشده است</option>];
     }
@@ -428,7 +428,7 @@ export const MerchantDashboard = () => {
                   value={selectedCategory}
                   onChange={(event) => setSelectedCategory(event.target.value)}
                 >
-                  {assignedCategoryOptions}
+                  {categorySelectOptions}
                 </Select>
               </div>
               <div className="space-y-2">
