@@ -40,21 +40,132 @@ class Settings_Page {
      * Options page callback
      */
     public function create_admin_page() {
-        // Set class property
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return;
+        }
+
+        $selected_company_id = $this->handle_admin_actions();
+
         $this->options = get_option( 'cwm_settings' );
-        ?>
-        <div class="wrap">
-            <h1>Company Wallet Manager Settings</h1>
-            <form method="post" action="options.php">
-            <?php
-                // This prints out all hidden setting fields
-                settings_fields( 'cwm_option_group' );
-                do_settings_sections( 'cwm-settings-admin' );
-                submit_button();
-            ?>
-            </form>
-        </div>
-        <?php
+
+        $category_manager = new Category_Manager();
+        $categories       = $category_manager->get_all_categories();
+        $companies        = get_users(
+            [
+                'role'    => 'company',
+                'orderby' => 'display_name',
+                'order'   => 'ASC',
+                'number'  => -1,
+            ]
+        );
+
+        if ( $selected_company_id <= 0 && isset( $_GET['cwm_company_id'] ) ) {
+            $selected_company_id = absint( $_GET['cwm_company_id'] );
+        }
+
+        $company_caps      = $selected_company_id > 0 ? $category_manager->get_company_category_caps( $selected_company_id ) : [];
+        $company_caps_map  = [];
+
+        foreach ( $company_caps as $cap ) {
+            if ( null === $cap['cap'] ) {
+                continue;
+            }
+
+            $company_caps_map[ $cap['category_id'] ] = (float) $cap['cap'];
+        }
+
+        $options = $this->options;
+
+        include CWM_PLUGIN_DIR . 'templates/admin/category-management.php';
+    }
+
+    /**
+     * Process category management submissions.
+     *
+     * @return int Selected company identifier from submission.
+     */
+    protected function handle_admin_actions() {
+        if ( 'POST' !== $_SERVER['REQUEST_METHOD'] ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash
+            return 0;
+        }
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return 0;
+        }
+
+        $selected_company_id = 0;
+        $category_manager    = new Category_Manager();
+
+        $manage_categories_nonce = isset( $_POST['cwm_manage_categories_nonce'] ) ? wp_unslash( $_POST['cwm_manage_categories_nonce'] ) : '';
+
+        if ( $manage_categories_nonce && wp_verify_nonce( $manage_categories_nonce, 'cwm_manage_categories' ) ) {
+            $action = isset( $_POST['cwm_manage_categories_action'] ) ? sanitize_text_field( wp_unslash( $_POST['cwm_manage_categories_action'] ) ) : '';
+
+            switch ( $action ) {
+                case 'create':
+                    $name   = isset( $_POST['category_name'] ) ? sanitize_text_field( wp_unslash( $_POST['category_name'] ) ) : '';
+                    $result = $category_manager->create_category( $name );
+                    $this->handle_category_result( $result, __( 'Category created successfully.', 'company-wallet-manager' ) );
+                    break;
+                case 'update':
+                    $category_id = isset( $_POST['category_id'] ) ? absint( $_POST['category_id'] ) : 0;
+                    $name        = isset( $_POST['category_name'] ) ? sanitize_text_field( wp_unslash( $_POST['category_name'] ) ) : '';
+                    $result      = $category_manager->update_category( $category_id, $name );
+                    $this->handle_category_result( $result, __( 'Category updated successfully.', 'company-wallet-manager' ) );
+                    break;
+                case 'delete':
+                    $category_id = isset( $_POST['category_id'] ) ? absint( $_POST['category_id'] ) : 0;
+                    $result      = $category_manager->delete_category( $category_id );
+                    $this->handle_category_result( $result, __( 'Category removed successfully.', 'company-wallet-manager' ) );
+                    break;
+            }
+        }
+
+        $assign_caps_nonce = isset( $_POST['cwm_assign_caps_nonce'] ) ? wp_unslash( $_POST['cwm_assign_caps_nonce'] ) : '';
+
+        if ( $assign_caps_nonce && wp_verify_nonce( $assign_caps_nonce, 'cwm_assign_caps' ) ) {
+            $selected_company_id = isset( $_POST['company_id'] ) ? absint( $_POST['company_id'] ) : 0;
+
+            if ( $selected_company_id <= 0 ) {
+                add_settings_error( 'cwm_category_manager', 'cwm_invalid_company', __( 'Please choose a company before saving caps.', 'company-wallet-manager' ), 'error' );
+            } else {
+                $caps_input = isset( $_POST['caps'] ) && is_array( $_POST['caps'] ) ? wp_unslash( $_POST['caps'] ) : [];
+                $caps       = [];
+
+                foreach ( $caps_input as $category_id => $amount ) {
+                    $category_id = absint( $category_id );
+                    if ( $category_id <= 0 ) {
+                        continue;
+                    }
+
+                    $caps[] = [
+                        'category_id' => $category_id,
+                        'cap'         => is_numeric( $amount ) ? (float) $amount : 0,
+                    ];
+                }
+
+                $category_manager->sync_company_category_caps( $selected_company_id, $caps );
+
+                add_settings_error( 'cwm_category_manager', 'cwm_caps_saved', __( 'Company category caps saved.', 'company-wallet-manager' ), 'updated' );
+            }
+        }
+
+        return $selected_company_id;
+    }
+
+    /**
+     * Normalize category manager responses into admin notices.
+     *
+     * @param mixed  $result  Result from the manager.
+     * @param string $message Success message.
+     */
+    protected function handle_category_result( $result, $message ) {
+        if ( is_wp_error( $result ) ) {
+            add_settings_error( 'cwm_category_manager', $result->get_error_code(), $result->get_error_message(), 'error' );
+            return;
+        }
+
+        add_settings_error( 'cwm_category_manager', 'cwm_category_success', $message, 'updated' );
     }
 
     /**
