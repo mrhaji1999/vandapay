@@ -29,6 +29,11 @@ class Category_Manager {
     protected $limits_table;
 
     /**
+     * @var string
+     */
+    protected $company_caps_table;
+
+    /**
      * Category_Manager constructor.
      */
     public function __construct() {
@@ -37,6 +42,7 @@ class Category_Manager {
         $this->categories_table = $wpdb->prefix . 'cwm_categories';
         $this->merchant_table   = $wpdb->prefix . 'cwm_category_merchants';
         $this->limits_table     = $wpdb->prefix . 'cwm_employee_category_limits';
+        $this->company_caps_table = $wpdb->prefix . 'cwm_company_category_caps';
 
         $this->maybe_create_tables();
     }
@@ -59,6 +65,7 @@ class Category_Manager {
             $this->categories_table,
             $this->merchant_table,
             $this->limits_table,
+            $this->company_caps_table,
         ];
 
         $missing_tables = [];
@@ -111,6 +118,17 @@ class Category_Manager {
                         PRIMARY KEY (id),
                         UNIQUE KEY employee_category (employee_id, category_id),
                         KEY company_id (company_id),
+                        KEY category_id (category_id)
+                ) {$charset_collate};",
+            $this->company_caps_table => "CREATE TABLE {$this->company_caps_table} (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        company_id BIGINT(20) UNSIGNED NOT NULL,
+                        category_id BIGINT(20) UNSIGNED NOT NULL,
+                        spending_cap DECIMAL(20,6) NOT NULL DEFAULT 0,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY company_category (company_id, category_id),
                         KEY category_id (category_id)
                 ) {$charset_collate};",
         ];
@@ -191,6 +209,145 @@ class Category_Manager {
         }
 
         return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Retrieve a single category by its identifier.
+     *
+     * @param int $category_id Category identifier.
+     * @return array<string, mixed>|null
+     */
+    public function get_category( $category_id ) {
+        global $wpdb;
+
+        $category_id = absint( $category_id );
+        if ( $category_id <= 0 ) {
+            return null;
+        }
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id, name, slug FROM {$this->categories_table} WHERE id = %d",
+                $category_id
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $row ) {
+            return null;
+        }
+
+        return [
+            'id'   => (int) $row['id'],
+            'name' => $row['name'],
+            'slug' => $row['slug'],
+        ];
+    }
+
+    /**
+     * Update an existing category.
+     *
+     * @param int    $category_id Category identifier.
+     * @param string $name        New category name.
+     * @return true|\WP_Error
+     */
+    public function update_category( $category_id, $name ) {
+        global $wpdb;
+
+        $category_id = absint( $category_id );
+        if ( $category_id <= 0 ) {
+            return new \WP_Error( 'cwm_invalid_category', __( 'Invalid category identifier.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $name = trim( (string) $name );
+        if ( '' === $name ) {
+            return new \WP_Error( 'cwm_invalid_category', __( 'Category name is required.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $existing = $this->get_category( $category_id );
+        if ( ! $existing ) {
+            return new \WP_Error( 'cwm_category_not_found', __( 'Category not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $slug = sanitize_title( $name );
+        if ( '' === $slug ) {
+            $slug = $existing['slug'];
+        }
+
+        $conflict = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT id FROM {$this->categories_table} WHERE slug = %s AND id != %d",
+                $slug,
+                $category_id
+            )
+        );
+
+        if ( $conflict ) {
+            $slug = sprintf( '%s-%d', $slug, $category_id );
+        }
+
+        $updated = $wpdb->update(
+            $this->categories_table,
+            [
+                'name'       => $name,
+                'slug'       => $slug,
+                'updated_at' => current_time( 'mysql' ),
+            ],
+            [ 'id' => $category_id ],
+            [ '%s', '%s', '%s' ],
+            [ '%d' ]
+        );
+
+        if ( false === $updated ) {
+            $error_message = $wpdb->last_error ? $wpdb->last_error : __( 'Unable to update category.', 'company-wallet-manager' );
+
+            return new \WP_Error(
+                'cwm_category_update_failed',
+                $error_message,
+                [
+                    'status' => 500,
+                ]
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * Delete a category and its related assignments.
+     *
+     * @param int $category_id Category identifier.
+     * @return true|\WP_Error
+     */
+    public function delete_category( $category_id ) {
+        global $wpdb;
+
+        $category_id = absint( $category_id );
+        if ( $category_id <= 0 ) {
+            return new \WP_Error( 'cwm_invalid_category', __( 'Invalid category identifier.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $deleted = $wpdb->delete( $this->categories_table, [ 'id' => $category_id ], [ '%d' ] );
+
+        if ( false === $deleted ) {
+            $error_message = $wpdb->last_error ? $wpdb->last_error : __( 'Unable to delete category.', 'company-wallet-manager' );
+
+            return new \WP_Error(
+                'cwm_category_delete_failed',
+                $error_message,
+                [ 'status' => 500 ]
+            );
+        }
+
+        if ( 0 === $deleted ) {
+            return new \WP_Error( 'cwm_category_not_found', __( 'Category not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $wpdb->delete( $this->merchant_table, [ 'category_id' => $category_id ], [ '%d' ] );
+        $wpdb->delete( $this->limits_table, [ 'category_id' => $category_id ], [ '%d' ] );
+        $wpdb->delete( $this->company_caps_table, [ 'category_id' => $category_id ], [ '%d' ] );
+
+        return true;
     }
 
     /**
@@ -437,5 +594,120 @@ class Category_Manager {
         $spent = isset( $row['spent_amount'] ) ? (float) $row['spent_amount'] : 0.0;
 
         return max( 0.0, $limit - $spent );
+    }
+
+    /**
+     * Retrieve category caps configured for a company.
+     *
+     * @param int $company_id Company identifier.
+     * @return array<int, array<string, mixed>>
+     */
+    public function get_company_category_caps( $company_id ) {
+        global $wpdb;
+
+        $company_id = absint( $company_id );
+
+        $sql = $wpdb->prepare(
+            "SELECT c.id, c.name, c.slug, caps.spending_cap FROM {$this->categories_table} c\n             LEFT JOIN {$this->company_caps_table} caps ON caps.category_id = c.id AND caps.company_id = %d\n             ORDER BY c.name ASC",
+            $company_id
+        );
+
+        $rows = $wpdb->get_results( $sql, ARRAY_A );
+
+        return array_map(
+            function( $row ) {
+                return [
+                    'category_id'   => (int) $row['id'],
+                    'category_name' => $row['name'],
+                    'slug'          => $row['slug'],
+                    'cap'           => isset( $row['spending_cap'] ) ? (float) $row['spending_cap'] : null,
+                ];
+            },
+            $rows ?: []
+        );
+    }
+
+    /**
+     * Persist caps for a company.
+     *
+     * @param int   $company_id Company identifier.
+     * @param array $caps       Array of [ 'category_id' => int, 'cap' => float ].
+     */
+    public function sync_company_category_caps( $company_id, array $caps ) {
+        global $wpdb;
+
+        $company_id = absint( $company_id );
+        if ( $company_id <= 0 ) {
+            return;
+        }
+
+        $values      = [];
+        $delete_ids  = [];
+
+        foreach ( $caps as $cap ) {
+            if ( empty( $cap['category_id'] ) ) {
+                continue;
+            }
+
+            $category_id = absint( $cap['category_id'] );
+            if ( $category_id <= 0 ) {
+                continue;
+            }
+
+            $amount = isset( $cap['cap'] ) ? (float) $cap['cap'] : 0.0;
+
+            if ( $amount <= 0 ) {
+                $delete_ids[] = $category_id;
+                continue;
+            }
+
+            $values[] = $wpdb->prepare( '(%d, %d, %f)', $company_id, $category_id, $amount );
+        }
+
+        if ( ! empty( $values ) ) {
+            $sql = "INSERT INTO {$this->company_caps_table} (company_id, category_id, spending_cap) VALUES " . implode( ',', $values ) . '
+                ON DUPLICATE KEY UPDATE spending_cap = VALUES(spending_cap), updated_at = CURRENT_TIMESTAMP';
+
+            $wpdb->query( $sql );
+        }
+
+        if ( ! empty( $delete_ids ) ) {
+            $placeholders = implode( ',', array_fill( 0, count( $delete_ids ), '%d' ) );
+            $params       = array_merge( [ $company_id ], $delete_ids );
+
+            $wpdb->query(
+                $wpdb->prepare(
+                    "DELETE FROM {$this->company_caps_table} WHERE company_id = %d AND category_id IN ($placeholders)",
+                    $params
+                )
+            );
+        }
+    }
+
+    /**
+     * Remove a single category cap for a company.
+     *
+     * @param int $company_id  Company identifier.
+     * @param int $category_id Category identifier.
+     * @return void
+     */
+    public function delete_company_category_cap( $company_id, $category_id ) {
+        global $wpdb;
+
+        $company_id  = absint( $company_id );
+        $category_id = absint( $category_id );
+
+        if ( $company_id <= 0 || $category_id <= 0 ) {
+            return;
+        }
+
+        $wpdb->delete(
+            $this->company_caps_table,
+            [
+                'company_id'  => $company_id,
+                'category_id' => $category_id,
+            ],
+            [ '%d', '%d' ]
+        );
     }
 }

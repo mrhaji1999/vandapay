@@ -2,6 +2,8 @@
 
 namespace CWM;
 
+use CWM\API\Category_Controller;
+use CWM\API\Company_Category_Cap_Controller;
 use WP_Error;
 use WP_Query;
 use WP_REST_Request;
@@ -43,12 +45,28 @@ class API_Handler {
     protected $category_manager;
 
     /**
+     * REST controller for category operations.
+     *
+     * @var Category_Controller
+     */
+    protected $category_controller;
+
+    /**
+     * REST controller for company caps.
+     *
+     * @var Company_Category_Cap_Controller
+     */
+    protected $company_cap_controller;
+
+    /**
      * Constructor.
      */
     public function __construct() {
-        $this->category_manager      = new Category_Manager();
-        $this->company_registration  = new Company_Registration();
-        $this->merchant_registration = new Merchant_Registration( $this->category_manager );
+        $this->category_manager        = new Category_Manager();
+        $this->category_controller     = new Category_Controller( $this->category_manager );
+        $this->company_cap_controller  = new Company_Category_Cap_Controller( $this->category_manager );
+        $this->company_registration    = new Company_Registration();
+        $this->merchant_registration   = new Merchant_Registration( $this->category_manager );
 
         add_action( 'rest_api_init', array( $this, 'register_routes' ) );
         add_action( 'rest_api_init', array( $this, 'configure_cors_support' ), 15 );
@@ -454,6 +472,9 @@ class API_Handler {
         ] );
 
         $this->register_admin_routes();
+
+        $this->category_controller->register_routes();
+        $this->company_cap_controller->register_routes();
     }
 
     /**
