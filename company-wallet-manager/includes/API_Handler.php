@@ -2232,7 +2232,18 @@ class API_Handler {
         $amount      = (float) $payment['amount'];
         $category_id = isset( $payment['category_id'] ) ? (int) $payment['category_id'] : 0;
 
-        $remaining_after = null;
+        $wallet           = new Wallet_System();
+        $current_balance  = $wallet->get_balance( $employee_id );
+        $remaining_after  = null;
+        $context          = null;
+
+        if ( $amount > $current_balance ) {
+            return new WP_Error(
+                'cwm_insufficient_funds',
+                __( 'موجودی کیف پول کاربر کافی نیست.', 'company-wallet-manager' ),
+                [ 'status' => 400 ]
+            );
+        }
 
         if ( $category_id > 0 ) {
             $context = $this->build_payment_context( $merchant_id, $employee_id, $category_id );
@@ -2256,7 +2267,6 @@ class API_Handler {
             $remaining_after = max( 0.0, $context['remaining'] - $amount );
         }
 
-        $wallet  = new Wallet_System();
         $success = $wallet->transfer( $employee_id, $merchant_id, $amount );
 
         if ( ! $success ) {
@@ -2264,10 +2274,21 @@ class API_Handler {
                 $this->category_manager->release_allowance( $employee_id, $category_id, $amount );
             }
 
-            return new WP_Error( 'cwm_insufficient_funds', __( 'Insufficient funds.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+            return new WP_Error(
+                'cwm_insufficient_funds',
+                __( 'موجودی کیف پول کاربر کافی نیست.', 'company-wallet-manager' ),
+                [ 'status' => 400 ]
+            );
         }
 
-        $metadata = [ 'confirmed_at' => gmdate( 'c', $now ), 'confirmed_by' => $current_user->ID ];
+        $updated_balance = $wallet->get_balance( $employee_id );
+
+        $metadata = [
+            'confirmed_at'           => gmdate( 'c', $now ),
+            'confirmed_by'           => $current_user->ID,
+            'wallet_balance_before'  => $current_balance,
+            'wallet_balance_after'   => $updated_balance,
+        ];
         if ( $category_id > 0 ) {
             $metadata['category_id'] = $category_id;
             if ( null !== $remaining_after ) {
@@ -2292,12 +2313,17 @@ class API_Handler {
             'metadata'        => $metadata,
         ] );
 
-        return rest_ensure_response(
-            [
-                'status'  => 'success',
-                'message' => __( 'Payment confirmed.', 'company-wallet-manager' ),
-            ]
-        );
+        $response = [
+            'status'         => 'success',
+            'message'        => __( 'Payment confirmed.', 'company-wallet-manager' ),
+            'wallet_balance' => $updated_balance,
+        ];
+
+        if ( null !== $remaining_after ) {
+            $response['category_remaining'] = $remaining_after;
+        }
+
+        return rest_ensure_response( $response );
     }
 
     /**
