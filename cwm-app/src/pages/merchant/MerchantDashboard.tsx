@@ -312,6 +312,23 @@ export const MerchantDashboard = () => {
     await updateCategoriesMutation.mutateAsync({ category_ids: categorySelection });
   };
 
+  const assignedCategoryOptions = useMemo(() => {
+    if (assignedCategories.length === 0) {
+      return [<option key="none" value="">هیچ دسته‌بندی فعالی ثبت نشده است</option>];
+    }
+
+    return [
+      <option key="placeholder" value="">
+        انتخاب دسته‌بندی
+      </option>,
+      ...assignedCategories.map((category) => (
+        <option key={category.id} value={category.id}>
+          {category.name}
+        </option>
+      ))
+    ];
+  }, [assignedCategories]);
+
   return (
     <DashboardLayout>
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
