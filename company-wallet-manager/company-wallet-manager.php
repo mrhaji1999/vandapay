@@ -24,9 +24,7 @@ define( 'CWM_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
 // Require the Composer autoloader.
 require_once CWM_PLUGIN_DIR . 'vendor/autoload.php';
-require_once CWM_PLUGIN_DIR . 'includes/api/class-cwm-employee-controller.php';
-
-use CWM\API\CWM_Employee_Controller;
+require_once CWM_PLUGIN_DIR . 'includes/api/class-cwm-transaction-controller.php';
 
 /**
  * The callback function for plugin activation.
@@ -71,7 +69,9 @@ function cwm_plugin_init() {
 
         // Initialize the API handler
         new CWM\API_Handler();
-        new CWM_Employee_Controller();
+
+        // Merchant transaction controller.
+        new CWM\API\Transaction_Controller();
 }
 add_action( 'plugins_loaded', 'cwm_plugin_init' );
 
