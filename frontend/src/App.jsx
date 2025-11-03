@@ -3,7 +3,8 @@ import { useAuth } from './context/AuthContext.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import CompanyDashboard from './pages/CompanyDashboard.jsx';
 import MerchantDashboard from './pages/MerchantDashboard.jsx';
-import EmployeeDashboard from './pages/EmployeeDashboard.jsx';
+import EmployeeDashboard from './pages/EmployeeDashboard.tsx';
+import EmployeeTransactions from './pages/EmployeeTransactions.tsx';
 import DashboardLayout from './components/layout/DashboardLayout.jsx';
 
 function ProtectedRoute({ children, allowedRoles }) {
@@ -66,6 +67,16 @@ export default function App() {
           <ProtectedRoute allowedRoles={["employee"]}>
             <DashboardLayout pageTitle="داشبورد کارمند">
               <EmployeeDashboard />
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/dashboard/employee/transactions"
+        element={
+          <ProtectedRoute allowedRoles={["employee"]}>
+            <DashboardLayout pageTitle="سوابق خرید کارمند">
+              <EmployeeTransactions />
             </DashboardLayout>
           </ProtectedRoute>
         }
