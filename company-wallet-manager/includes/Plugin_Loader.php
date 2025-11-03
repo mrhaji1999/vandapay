@@ -95,6 +95,7 @@ class Plugin_Loader {
                         id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                         merchant_id BIGINT(20) UNSIGNED NOT NULL,
                         employee_id BIGINT(20) UNSIGNED NOT NULL,
+                        category_id BIGINT(20) UNSIGNED DEFAULT NULL,
                         amount DECIMAL(20, 6) NOT NULL DEFAULT 0,
                         otp VARCHAR(10) NOT NULL,
                         otp_expires_at DATETIME DEFAULT NULL,
@@ -107,6 +108,7 @@ class Plugin_Loader {
                         PRIMARY KEY  (id),
                         KEY merchant_id (merchant_id),
                         KEY employee_id (employee_id),
+                        KEY category_id (category_id),
                         KEY status (status),
                         KEY created_at (created_at)
                 ) $charset_collate;";
@@ -130,6 +132,47 @@ class Plugin_Loader {
                         KEY merchant_id (merchant_id),
                         KEY status (status),
                         KEY created_at (created_at)
+                ) $charset_collate;";
+                dbDelta( $sql );
+
+                $table_name = $wpdb->prefix . 'cwm_categories';
+                $sql        = "CREATE TABLE $table_name (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        name VARCHAR(191) NOT NULL,
+                        slug VARCHAR(191) NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY slug (slug)
+                ) $charset_collate;";
+                dbDelta( $sql );
+
+                $table_name = $wpdb->prefix . 'cwm_category_merchants';
+                $sql        = "CREATE TABLE $table_name (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                        category_id BIGINT(20) UNSIGNED NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY merchant_category (merchant_id, category_id),
+                        KEY category_id (category_id)
+                ) $charset_collate;";
+                dbDelta( $sql );
+
+                $table_name = $wpdb->prefix . 'cwm_employee_category_limits';
+                $sql        = "CREATE TABLE $table_name (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        employee_id BIGINT(20) UNSIGNED NOT NULL,
+                        company_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                        category_id BIGINT(20) UNSIGNED NOT NULL,
+                        spending_limit DECIMAL(20,6) NOT NULL DEFAULT 0,
+                        spent_amount DECIMAL(20,6) NOT NULL DEFAULT 0,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY employee_category (employee_id, category_id),
+                        KEY company_id (company_id),
+                        KEY category_id (category_id)
                 ) $charset_collate;";
                 dbDelta( $sql );
         }
