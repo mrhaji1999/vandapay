@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 const NAV_ITEMS = {
   administrator: [
     { to: '/admin', label: 'داشبورد مدیریت' },
+    { to: '/admin/categories', label: 'دسته‌بندی پذیرنده‌ها' },
     { to: '/admin/transactions', label: 'گزارش تراکنش‌ها' }
   ],
   company: [{ to: '/company', label: 'نمای کلی شرکت' }],

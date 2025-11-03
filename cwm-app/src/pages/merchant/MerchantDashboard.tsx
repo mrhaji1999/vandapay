@@ -74,6 +74,7 @@ export const MerchantDashboard = () => {
   const [amountValue, setAmountValue] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [previewInfo, setPreviewInfo] = useState<PreviewResponse | null>(null);
+  const [categorySelection, setCategorySelection] = useState<number[]>([]);
   const [activeRequest, setActiveRequest] = useState<{ id: number; amount: number; employeeName?: string } | null>(null);
   const [otpOpen, setOtpOpen] = useState(false);
 
@@ -145,6 +146,11 @@ export const MerchantDashboard = () => {
   });
 
   const assignedCategories = categoriesData?.assigned ?? [];
+  const availableCategories = categoriesData?.available ?? [];
+
+  useEffect(() => {
+    setCategorySelection(assignedCategories.map((category) => category.id));
+  }, [assignedCategories]);
 
   const previewMutation = useMutation({
     mutationFn: async (payload: PreviewPayload) => {
@@ -182,6 +188,20 @@ export const MerchantDashboard = () => {
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message ?? 'ثبت درخواست پرداخت با خطا مواجه شد.';
+      toast.error(message);
+    }
+  });
+
+  const updateCategoriesMutation = useMutation({
+    mutationFn: async (payload: { category_ids: number[] }) => {
+      await apiClient.post('/merchant/categories', payload);
+    },
+    onSuccess: () => {
+      toast.success('دسته‌بندی‌های پذیرنده به‌روزرسانی شد.');
+      queryClient.invalidateQueries({ queryKey: ['merchant', 'categories'] });
+    },
+    onError: (error: any) => {
+      const message = error?.response?.data?.message ?? 'به‌روزرسانی دسته‌بندی‌ها ممکن نشد.';
       toast.error(message);
     }
   });
@@ -278,6 +298,37 @@ export const MerchantDashboard = () => {
     ];
   }, [assignedCategories]);
 
+  const toggleCategorySelection = (categoryId: number) => {
+    setCategorySelection((prev) => {
+      if (prev.includes(categoryId)) {
+        return prev.filter((id) => id !== categoryId);
+      }
+      return [...prev, categoryId];
+    });
+  };
+
+  const handleCategoriesSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await updateCategoriesMutation.mutateAsync({ category_ids: categorySelection });
+  };
+
+  const assignedCategoryOptions = useMemo(() => {
+    if (assignedCategories.length === 0) {
+      return [<option key="none" value="">هیچ دسته‌بندی فعالی ثبت نشده است</option>];
+    }
+
+    return [
+      <option key="placeholder" value="">
+        انتخاب دسته‌بندی
+      </option>,
+      ...assignedCategories.map((category) => (
+        <option key={category.id} value={category.id}>
+          {category.name}
+        </option>
+      ))
+    ];
+  }, [assignedCategories]);
+
   return (
     <DashboardLayout>
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -306,6 +357,52 @@ export const MerchantDashboard = () => {
       </section>
 
       <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>مدیریت دسته‌بندی پذیرنده</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {availableCategories.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                هنوز دسته‌بندی‌ای توسط مدیر سامانه ثبت نشده است. ابتدا از بخش مدیریت برای پذیرنده‌ها دسته‌بندی بسازید.
+              </p>
+            ) : (
+              <form className="space-y-4" onSubmit={handleCategoriesSubmit}>
+                <p className="text-sm text-muted-foreground">
+                  دسته‌بندی‌هایی که در این پذیرنده فعال هستند را انتخاب کنید. تنها دسته‌های فعال در فرم پرداخت قابل انتخاب
+                  خواهند بود.
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {availableCategories.map((category) => {
+                    const checked = categorySelection.includes(category.id);
+                    return (
+                      <label
+                        key={category.id}
+                        className={`flex cursor-pointer items-center justify-between rounded-md border p-3 text-sm transition ${
+                          checked ? 'border-primary bg-primary/10' : 'border-muted-foreground/20 hover:border-primary/60'
+                        }`}
+                      >
+                        <span>{category.name}</span>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={checked}
+                          onChange={() => toggleCategorySelection(category.id)}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={updateCategoriesMutation.isPending}>
+                    {updateCategoriesMutation.isPending ? 'در حال ذخیره…' : 'ذخیره دسته‌بندی‌ها'}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>درخواست پرداخت از کارمند</CardTitle>
