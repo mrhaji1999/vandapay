@@ -39,7 +39,8 @@ export const AdminMerchantsPage = () => {
     queryKey: ['admin', 'merchants'],
     queryFn: async () => {
       const response = await apiClient.get('/admin/merchants');
-      const merchantList = unwrapWordPressList<Record<string, unknown>>(response.data) ?? [];
+      const merchantPayload = unwrapWordPressList<Record<string, unknown>>(response.data);
+      const merchantList = Array.isArray(merchantPayload) ? merchantPayload : [];
       return merchantList.map((merchant) => ({
         id: Number(merchant.id ?? 0),
         name: String(merchant.name ?? ''),
@@ -79,15 +80,17 @@ export const AdminMerchantsPage = () => {
         assigned: [],
         available: []
       };
+      const assignedList = Array.isArray(payload.assigned) ? payload.assigned : [];
+      const availableList = Array.isArray(payload.available) ? payload.available : [];
       return {
-        assigned: (payload.assigned ?? [])
+        assigned: assignedList
           .filter((category) => category && typeof category === 'object')
           .map((category) => ({
             id: Number(category.id ?? 0),
             name: String(category.name ?? ''),
             slug: String(category.slug ?? '')
           })),
-        available: (payload.available ?? [])
+        available: availableList
           .filter((category) => category && typeof category === 'object')
           .map((category) => ({
             id: Number(category.id ?? 0),
