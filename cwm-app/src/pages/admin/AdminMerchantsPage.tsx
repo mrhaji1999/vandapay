@@ -39,7 +39,8 @@ export const AdminMerchantsPage = () => {
     queryKey: ['admin', 'merchants'],
     queryFn: async () => {
       const response = await apiClient.get('/admin/merchants');
-      return unwrapWordPressList<Record<string, unknown>>(response.data).map((merchant) => ({
+      const merchantList = unwrapWordPressList<Record<string, unknown>>(response.data) ?? [];
+      return merchantList.map((merchant) => ({
         id: Number(merchant.id ?? 0),
         name: String(merchant.name ?? ''),
         email: merchant.email ? String(merchant.email) : undefined,
@@ -47,11 +48,13 @@ export const AdminMerchantsPage = () => {
         store_name: merchant.store_name ? String(merchant.store_name) : undefined,
         pending_payouts: Number(merchant.pending_payouts ?? 0),
         categories: Array.isArray(merchant.categories)
-          ? (merchant.categories as Record<string, unknown>[]).map((category) => ({
-              id: Number(category.id ?? 0),
-              name: String(category.name ?? ''),
-              slug: String(category.slug ?? '')
-            }))
+          ? (merchant.categories as Record<string, unknown>[])
+              .filter((category) => category && typeof category === 'object')
+              .map((category) => ({
+                id: Number(category.id ?? 0),
+                name: String(category.name ?? ''),
+                slug: String(category.slug ?? '')
+              }))
           : [],
         category_ids: Array.isArray(merchant.category_ids)
           ? (merchant.category_ids as (string | number)[])
@@ -72,21 +75,25 @@ export const AdminMerchantsPage = () => {
     queryFn: async () => {
       if (!selectedMerchantId) return null;
       const response = await apiClient.get(`/admin/merchants/${selectedMerchantId}/categories`);
-      const payload = unwrapWordPressObject<MerchantCategoriesResponse>(response.data);
-      if (!payload) {
-        return { assigned: [], available: [] };
-      }
+      const payload = unwrapWordPressObject<MerchantCategoriesResponse>(response.data) ?? {
+        assigned: [],
+        available: []
+      };
       return {
-        assigned: (payload.assigned ?? []).map((category) => ({
-          id: Number(category.id ?? 0),
-          name: String(category.name ?? ''),
-          slug: String(category.slug ?? '')
-        })),
-        available: (payload.available ?? []).map((category) => ({
-          id: Number(category.id ?? 0),
-          name: String(category.name ?? ''),
-          slug: String(category.slug ?? '')
-        }))
+        assigned: (payload.assigned ?? [])
+          .filter((category) => category && typeof category === 'object')
+          .map((category) => ({
+            id: Number(category.id ?? 0),
+            name: String(category.name ?? ''),
+            slug: String(category.slug ?? '')
+          })),
+        available: (payload.available ?? [])
+          .filter((category) => category && typeof category === 'object')
+          .map((category) => ({
+            id: Number(category.id ?? 0),
+            name: String(category.name ?? ''),
+            slug: String(category.slug ?? '')
+          }))
       };
     },
     enabled: typeof selectedMerchantId === 'number'
