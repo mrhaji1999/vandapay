@@ -36,11 +36,19 @@ class API_Handler {
     protected $merchant_registration;
 
     /**
+     * Handles category and allowance persistence.
+     *
+     * @var Category_Manager
+     */
+    protected $category_manager;
+
+    /**
      * Constructor.
      */
     public function __construct() {
         $this->company_registration  = new Company_Registration();
         $this->merchant_registration = new Merchant_Registration();
+        $this->category_manager      = new Category_Manager();
 
         add_action( 'rest_api_init', array( $this, 'register_routes' ) );
         add_action( 'rest_api_init', array( $this, 'configure_cors_support' ), 15 );
@@ -217,7 +225,38 @@ class API_Handler {
                             return is_string( $value );
                         },
                     ],
+                    'category_id' => [
+                        'required'          => true,
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_numeric( $value );
+                        },
+                    ],
                     'amount' => [
+                        'required'          => true,
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_numeric( $value );
+                        },
+                    ],
+                ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/payment/preview', [
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'preview_payment' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+                'args'                => [
+                    'employee_national_id' => [
+                        'required'          => true,
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
+                    ],
+                    'category_id' => [
                         'required'          => true,
                         'validate_callback' => function( $value, $request, $param ) {
                             unset( $request, $param );
@@ -232,7 +271,7 @@ class API_Handler {
             [
                 'methods'             => 'POST',
                 'callback'            => [ $this, 'confirm_payment' ],
-                'permission_callback' => [ $this, 'employee_permission_check' ],
+                'permission_callback' => [ $this, 'merchant_or_employee_permission_check' ],
                 'args'                => [
                     'request_id' => [
                         'required'          => true,
@@ -297,6 +336,71 @@ class API_Handler {
                         },
                     ],
                 ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/categories', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'list_categories' ],
+                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'create_new_category' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+                'args'                => [
+                    'name' => [
+                        'required'          => true,
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_string( $value );
+                        },
+                    ],
+                ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/merchant/categories', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_merchant_categories_route' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'update_merchant_categories' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+                'args'                => [
+                    'category_ids' => [
+                        'required'          => true,
+                        'validate_callback' => function( $value, $request, $param ) {
+                            unset( $request, $param );
+                            return is_array( $value );
+                        },
+                    ],
+                ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/employee/category-balances', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_employee_category_balances' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/company/employees/(?P<employee_id>\d+)/limits', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_company_employee_limits' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'update_company_employee_limits' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
             ],
         ] );
 
@@ -628,6 +732,129 @@ class API_Handler {
     }
 
     /**
+     * List available merchant categories.
+     */
+    public function list_categories( WP_REST_Request $request ) {
+        unset( $request );
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => $this->category_manager->get_all_categories(),
+            ]
+        );
+    }
+
+    /**
+     * Create a new merchant category.
+     */
+    public function create_new_category( WP_REST_Request $request ) {
+        $name = $request->get_param( 'name' );
+
+        $created = $this->category_manager->create_category( $name );
+        if ( is_wp_error( $created ) ) {
+            return $created;
+        }
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [
+                    'id' => $created,
+                ],
+            ]
+        );
+    }
+
+    /**
+     * Return the categories assigned to the authenticated merchant.
+     */
+    public function get_merchant_categories_route( WP_REST_Request $request ) {
+        unset( $request );
+
+        $merchant_id = get_current_user_id();
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [
+                    'assigned'  => $this->category_manager->get_merchant_categories( $merchant_id ),
+                    'available' => $this->category_manager->get_all_categories(),
+                ],
+            ]
+        );
+    }
+
+    /**
+     * Update the category assignments for the authenticated merchant.
+     */
+    public function update_merchant_categories( WP_REST_Request $request ) {
+        $category_ids = $request->get_param( 'category_ids' );
+
+        if ( ! is_array( $category_ids ) ) {
+            return new WP_Error( 'cwm_invalid_categories', __( 'Category IDs must be an array.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $available = wp_list_pluck( $this->category_manager->get_all_categories(), 'id' );
+        $category_ids = array_values( array_intersect( array_map( 'absint', $category_ids ), $available ) );
+
+        $this->category_manager->sync_merchant_categories( get_current_user_id(), $category_ids );
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [ 'assigned' => $this->category_manager->get_merchant_categories( get_current_user_id() ) ],
+            ]
+        );
+    }
+
+    /**
+     * Return category allowance cards for the authenticated employee.
+     */
+    public function get_employee_category_balances( WP_REST_Request $request ) {
+        unset( $request );
+
+        $employee_id = get_current_user_id();
+        $wallet      = new Wallet_System();
+        $balance     = $wallet->get_balance( $employee_id );
+
+        $all_categories = $this->category_manager->get_all_categories();
+        $limits         = $this->category_manager->get_employee_limits( $employee_id );
+
+        $indexed_limits = [];
+        foreach ( $limits as $limit ) {
+            $indexed_limits[ $limit['category_id'] ] = $limit;
+        }
+
+        $categories = [];
+        foreach ( $all_categories as $category ) {
+            $entry = isset( $indexed_limits[ $category['id'] ] ) ? $indexed_limits[ $category['id'] ] : null;
+
+            $limit = $entry ? (float) $entry['limit'] : 0.0;
+            $spent = $entry ? (float) $entry['spent'] : 0.0;
+            $remaining = max( 0.0, $limit - $spent );
+
+            $categories[] = [
+                'category_id'   => (int) $category['id'],
+                'category_name' => $category['name'],
+                'limit'         => $limit,
+                'spent'         => $spent,
+                'remaining'     => $remaining,
+            ];
+        }
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [
+                    'wallet_balance' => $balance,
+                    'categories'     => $categories,
+                ],
+            ]
+        );
+    }
+
+    /**
      * Generate a JWT token for the user.
      *
      * @param \WP_REST_Request $request Full details about the request.
@@ -770,6 +997,113 @@ class API_Handler {
     }
 
     /**
+     * Retrieve category limits for an employee within the company's context.
+     */
+    public function get_company_employee_limits( WP_REST_Request $request ) {
+        $employee_id = (int) $request->get_param( 'employee_id' );
+        if ( $employee_id <= 0 ) {
+            return new WP_Error( 'cwm_invalid_employee', __( 'Invalid employee identifier.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $company_id = $this->resolve_employee_company_context( $employee_id );
+        if ( is_wp_error( $company_id ) ) {
+            return $company_id;
+        }
+
+        $all_categories = $this->category_manager->get_all_categories();
+        $limits         = $this->category_manager->get_employee_limits( $employee_id );
+
+        $indexed = [];
+        foreach ( $limits as $limit ) {
+            $indexed[ $limit['category_id'] ] = $limit;
+        }
+
+        $categories = [];
+        foreach ( $all_categories as $category ) {
+            $entry = isset( $indexed[ $category['id'] ] ) ? $indexed[ $category['id'] ] : null;
+            $limit = $entry ? (float) $entry['limit'] : 0.0;
+            $spent = $entry ? (float) $entry['spent'] : 0.0;
+            $remaining = max( 0.0, $limit - $spent );
+
+            $categories[] = [
+                'category_id'   => (int) $category['id'],
+                'category_name' => $category['name'],
+                'limit'         => $limit,
+                'spent'         => $spent,
+                'remaining'     => $remaining,
+            ];
+        }
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [
+                    'employee_id' => $employee_id,
+                    'company_id'  => $company_id,
+                    'categories'  => $categories,
+                ],
+            ]
+        );
+    }
+
+    /**
+     * Update the per-category limits for an employee.
+     */
+    public function update_company_employee_limits( WP_REST_Request $request ) {
+        $employee_id = (int) $request->get_param( 'employee_id' );
+        if ( $employee_id <= 0 ) {
+            return new WP_Error( 'cwm_invalid_employee', __( 'Invalid employee identifier.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $company_id = $this->resolve_employee_company_context( $employee_id );
+        if ( is_wp_error( $company_id ) ) {
+            return $company_id;
+        }
+
+        $payload = $request->get_json_params();
+        $limits  = [];
+
+        if ( isset( $payload['limits'] ) && is_array( $payload['limits'] ) ) {
+            $limits = $payload['limits'];
+        } elseif ( is_array( $payload ) && isset( $payload[0] ) ) {
+            $limits = $payload;
+        } elseif ( is_array( $request->get_param( 'limits' ) ) ) {
+            $limits = $request->get_param( 'limits' );
+        }
+
+        if ( ! is_array( $limits ) ) {
+            return new WP_Error( 'cwm_invalid_limits', __( 'Category limits payload is invalid.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $sanitized = [];
+        foreach ( $limits as $limit ) {
+            if ( ! is_array( $limit ) ) {
+                continue;
+            }
+
+            $category_id = isset( $limit['category_id'] ) ? absint( $limit['category_id'] ) : 0;
+            $amount      = isset( $limit['limit'] ) ? (float) $limit['limit'] : 0.0;
+
+            if ( $category_id <= 0 ) {
+                continue;
+            }
+
+            if ( $amount < 0 ) {
+                $amount = 0.0;
+            }
+
+            $sanitized[] = [
+                'category_id' => $category_id,
+                'limit'       => $amount,
+            ];
+        }
+
+        $this->category_manager->set_employee_limits( $employee_id, $sanitized, $company_id );
+
+        return $this->get_company_employee_limits( $request );
+    }
+
+    /**
      * Admin endpoint: list companies.
      */
     public function get_admin_companies( WP_REST_Request $request ) {
@@ -817,7 +1151,12 @@ class API_Handler {
         $wallet = new Wallet_System();
         $rows   = [];
 
+        $employee_ids = wp_list_pluck( $employees, 'ID' );
+        $limits_map   = $this->category_manager->get_limits_for_employees( $employee_ids );
+
         foreach ( $employees as $employee ) {
+            $limits = isset( $limits_map[ $employee->ID ] ) ? $limits_map[ $employee->ID ] : [];
+
             $rows[] = [
                 'id'        => $employee->ID,
                 'name'      => $employee->display_name,
@@ -825,10 +1164,11 @@ class API_Handler {
                 'balance'   => $wallet->get_balance( $employee->ID ),
                 'national_id' => get_user_meta( $employee->ID, 'national_id', true ),
                 'phone'     => get_user_meta( $employee->ID, 'mobile', true ),
+                'category_limits' => $limits,
             ];
         }
 
-        return $this->respond_with_format( $request, $rows, [ 'id', 'name', 'email', 'balance', 'national_id', 'phone' ], 'company-employees.csv' );
+        return $this->respond_with_format( $request, $rows, [ 'id', 'name', 'email', 'balance', 'national_id', 'phone', 'category_limits' ], 'company-employees.csv' );
     }
 
     /**
@@ -1671,7 +2011,7 @@ class API_Handler {
 
         $rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT id, merchant_id, amount, status, created_at FROM $table WHERE employee_id = %d AND status = %s ORDER BY created_at DESC",
+                "SELECT id, merchant_id, category_id, amount, status, created_at FROM $table WHERE employee_id = %d AND status = %s ORDER BY created_at DESC",
                 $employee_id,
                 'pending'
             ),
@@ -1697,6 +2037,7 @@ class API_Handler {
                 return [
                     'id'            => (int) $row['id'],
                     'amount'        => (float) $row['amount'],
+                    'category_id'   => isset( $row['category_id'] ) ? (int) $row['category_id'] : 0,
                     'status'        => $row['status'],
                     'merchant_id'   => (int) $row['merchant_id'],
                     'merchant_name' => $merchant_name,
@@ -1719,19 +2060,38 @@ class API_Handler {
     public function confirm_payment( WP_REST_Request $request ) {
         global $wpdb;
 
-        $employee_id = get_current_user_id();
-        $request_id  = (int) $request->get_param( 'request_id' );
-        $otp_code    = sanitize_text_field( $request->get_param( 'otp_code' ) );
+        $current_user = wp_get_current_user();
+        $request_id   = (int) $request->get_param( 'request_id' );
+        $otp_code     = sanitize_text_field( $request->get_param( 'otp_code' ) );
 
-        $table   = $wpdb->prefix . 'cwm_payment_requests';
-        $payment = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT * FROM $table WHERE id = %d AND employee_id = %d",
-                $request_id,
-                $employee_id
-            ),
-            ARRAY_A
-        );
+        $is_employee = $this->user_has_role( $current_user, 'employee' );
+        $is_merchant = $this->user_has_role( $current_user, 'merchant' );
+
+        if ( ! $is_employee && ! $is_merchant ) {
+            return new WP_Error( 'cwm_permission_denied', __( 'You are not allowed to confirm this payment.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+        }
+
+        $table = $wpdb->prefix . 'cwm_payment_requests';
+
+        if ( $is_employee ) {
+            $payment = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT * FROM $table WHERE id = %d AND employee_id = %d",
+                    $request_id,
+                    $current_user->ID
+                ),
+                ARRAY_A
+            );
+        } else {
+            $payment = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT * FROM $table WHERE id = %d AND merchant_id = %d",
+                    $request_id,
+                    $current_user->ID
+                ),
+                ARRAY_A
+            );
+        }
 
         if ( ! $payment ) {
             return new WP_Error( 'cwm_invalid_request', __( 'Invalid payment request.', 'company-wallet-manager' ), [ 'status' => 404 ] );
@@ -1766,27 +2126,69 @@ class API_Handler {
             return new WP_Error( 'cwm_invalid_otp', __( 'Invalid OTP code.', 'company-wallet-manager' ), [ 'status' => 400 ] );
         }
 
+        $employee_id = (int) $payment['employee_id'];
+        $merchant_id = (int) $payment['merchant_id'];
+        $amount      = (float) $payment['amount'];
+        $category_id = isset( $payment['category_id'] ) ? (int) $payment['category_id'] : 0;
+
+        $remaining_after = null;
+
+        if ( $category_id > 0 ) {
+            $context = $this->build_payment_context( $merchant_id, $employee_id, $category_id );
+            if ( is_wp_error( $context ) ) {
+                return $context;
+            }
+
+            if ( ! $context['limit_defined'] ) {
+                return new WP_Error( 'cwm_category_limit_missing', __( 'هیچ سقفی برای این دسته‌بندی ثبت نشده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+            }
+
+            if ( $amount > $context['available'] ) {
+                return new WP_Error( 'cwm_category_limit_exceeded', __( 'سقف استفاده از این دسته‌بندی تکمیل شده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+            }
+
+            $consumed = $this->category_manager->consume_allowance( $employee_id, $category_id, $amount );
+            if ( ! $consumed ) {
+                return new WP_Error( 'cwm_category_limit_exceeded', __( 'سقف استفاده از این دسته‌بندی تکمیل شده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+            }
+
+            $remaining_after = max( 0.0, $context['remaining'] - $amount );
+        }
+
         $wallet  = new Wallet_System();
-        $success = $wallet->transfer( $employee_id, (int) $payment['merchant_id'], (float) $payment['amount'] );
+        $success = $wallet->transfer( $employee_id, $merchant_id, $amount );
 
         if ( ! $success ) {
+            if ( $category_id > 0 ) {
+                $this->category_manager->release_allowance( $employee_id, $category_id, $amount );
+            }
+
             return new WP_Error( 'cwm_insufficient_funds', __( 'Insufficient funds.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $metadata = [ 'confirmed_at' => gmdate( 'c', $now ), 'confirmed_by' => $current_user->ID ];
+        if ( $category_id > 0 ) {
+            $metadata['category_id'] = $category_id;
+            if ( null !== $remaining_after ) {
+                $metadata['category_remaining_after'] = $remaining_after;
+            }
         }
 
         $wpdb->update(
             $table,
             [
-                'status'      => 'completed',
-                'metadata'    => wp_json_encode( [ 'confirmed_at' => gmdate( 'c', $now ) ] ),
+                'status'          => 'completed',
+                'metadata'        => wp_json_encode( $metadata ),
                 'failed_attempts' => 0,
             ],
             [ 'id' => $request_id ]
         );
 
         $logger = new Transaction_Logger();
-        $logger->log( 'payment', $employee_id, (int) $payment['merchant_id'], (float) $payment['amount'], 'completed', [
+        $logger->log( 'payment', $employee_id, $merchant_id, $amount, 'completed', [
             'related_request' => $request_id,
-            'context'         => 'employee_payment',
+            'context'         => $is_employee ? 'employee_payment' : 'merchant_confirmed_payment',
+            'metadata'        => $metadata,
         ] );
 
         return rest_ensure_response(
@@ -1807,17 +2209,187 @@ class API_Handler {
         global $wpdb;
 
         $merchant_id = get_current_user_id();
-        // Accept multiple aliases for better compatibility with clients
-        $national_id = sanitize_text_field( $request->get_param( 'employee_national_id' ) ?: $request->get_param( 'national_id' ) ?: $request->get_param( 'nid' ) );
-        $mobile      = sanitize_text_field( $request->get_param( 'mobile' ) ?: $request->get_param( 'employee_mobile' ) );
+        $identifiers = $this->parse_employee_identifiers( $request );
         $amount      = (float) $request->get_param( 'amount' );
+        $category_id = (int) $request->get_param( 'category_id' );
 
         if ( $amount <= 0 ) {
             return new WP_Error( 'cwm_invalid_amount', __( 'Amount must be greater than zero.', 'company-wallet-manager' ), [ 'status' => 400 ] );
         }
 
-        // Try by national_id first (both meta keys), otherwise by mobile meta/username
+        if ( $category_id <= 0 ) {
+            return new WP_Error( 'cwm_invalid_category', __( 'A valid category is required.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $employee_id = $this->resolve_employee_user_from_identifiers( $identifiers['national_id'], $identifiers['mobile'] );
+        if ( is_wp_error( $employee_id ) ) {
+            return $employee_id;
+        }
+
+        $context = $this->build_payment_context( $merchant_id, $employee_id, $category_id );
+        if ( is_wp_error( $context ) ) {
+            return $context;
+        }
+
+        if ( ! $context['limit_defined'] ) {
+            return new WP_Error( 'cwm_category_limit_missing', __( 'هیچ سقفی برای این دسته‌بندی ثبت نشده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        if ( $amount > $context['available'] ) {
+            return new WP_Error( 'cwm_category_limit_exceeded', __( 'مبلغ درخواستی از سقف مجاز این دسته‌بندی یا موجودی کیف پول بیشتر است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $otp      = wp_rand( 100000, 999999 );
+        $expires  = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp', true ) + ( 5 * MINUTE_IN_SECONDS ) );
+        $table    = $wpdb->prefix . 'cwm_payment_requests';
+        $inserted = $wpdb->insert(
+            $table,
+            [
+                'merchant_id'     => $merchant_id,
+                'employee_id'     => $employee_id,
+                'category_id'     => $category_id,
+                'amount'          => $amount,
+                'otp'             => (string) $otp,
+                'otp_expires_at'  => $expires,
+                'failed_attempts' => 0,
+                'status'          => 'pending',
+            ]
+        );
+
+        if ( false === $inserted ) {
+            return new WP_Error( 'cwm_payment_request_failed', __( 'Unable to create payment request.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+        }
+
+        $request_id = (int) $wpdb->insert_id;
+
+        $phone      = get_user_meta( $employee_id, 'mobile', true );
+        $sms        = new SMS_Handler();
+        $sms->send_otp( $phone, $otp );
+
+        $logger = new Transaction_Logger();
+        $logger->log( 'payment_request', $merchant_id, $employee_id, $amount, 'pending', [
+            'related_request' => $request_id,
+            'context'         => 'merchant_payment_request',
+            'metadata'        => [ 'expires_at' => $expires, 'category_id' => $category_id ],
+        ] );
+
+        return rest_ensure_response(
+            [
+                'status'          => 'success',
+                'message'         => __( 'Payment request created.', 'company-wallet-manager' ),
+                'request_id'      => $request_id,
+                'remaining'       => $context['remaining'] - $amount,
+                'wallet_balance'  => $context['wallet_balance'] - $amount,
+            ]
+        );
+    }
+
+
+    /**
+     * Preview payment availability for a merchant before creating a request.
+     */
+    public function preview_payment( WP_REST_Request $request ) {
+        $merchant_id = get_current_user_id();
+        $identifiers = $this->parse_employee_identifiers( $request );
+        $category_id = (int) $request->get_param( 'category_id' );
+
+        if ( $category_id <= 0 ) {
+            return new WP_Error( 'cwm_invalid_category', __( 'A valid category is required.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $employee_id = $this->resolve_employee_user_from_identifiers( $identifiers['national_id'], $identifiers['mobile'] );
+        if ( is_wp_error( $employee_id ) ) {
+            return $employee_id;
+        }
+
+        $context = $this->build_payment_context( $merchant_id, $employee_id, $category_id );
+        if ( is_wp_error( $context ) ) {
+            return $context;
+        }
+
+        $employee = get_userdata( $employee_id );
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [
+                    'employee_id'      => $employee_id,
+                    'employee_name'    => $employee ? $employee->display_name : '',
+                    'category_id'      => $category_id,
+                    'limit_defined'    => $context['limit_defined'],
+                    'limit'            => $context['limit'],
+                    'spent'            => $context['spent'],
+                    'remaining'        => $context['remaining'],
+                    'wallet_balance'   => $context['wallet_balance'],
+                    'available_amount' => $context['available'],
+                ],
+            ]
+        );
+    }
+    /**
+     * Validate the JWT token and authenticate the user.
+     *
+     * @param \WP_REST_Request $request
+     * @return bool|\WP_Error
+     */
+    public function validate_token( $request ) {
+        $auth_header = $request->get_header( 'Authorization' );
+        if ( ! $auth_header ) {
+            return new \WP_Error( 'jwt_auth_no_auth_header', 'Authorization header not found.', array( 'status' => 403 ) );
+        }
+
+        list( $token ) = sscanf( $auth_header, 'Bearer %s' );
+        if ( ! $token ) {
+            return new \WP_Error( 'jwt_auth_bad_auth_header', 'Authorization header malformed.', array( 'status' => 403 ) );
+        }
+
+        // Ensure the secret key is defined in wp-config.php.
+        if ( ! defined( 'JWT_AUTH_SECRET_KEY' ) ) {
+            return new \WP_Error( 'jwt_auth_secret_not_defined', 'JWT secret key is not defined in wp-config.php.', array( 'status' => 500 ) );
+        }
+
+        try {
+            $decoded = \Firebase\JWT\JWT::decode( $token, new \Firebase\JWT\Key( JWT_AUTH_SECRET_KEY, 'HS256' ) );
+            wp_set_current_user( $decoded->data->user->id );
+            return true;
+        } catch ( \Exception $e ) {
+            return new \WP_Error( 'jwt_auth_invalid_token', $e->getMessage(), array( 'status' => 403 ) );
+        }
+    }
+
+
+    /**
+     * Extract employee identifiers from a payment request.
+     */
+    protected function parse_employee_identifiers( WP_REST_Request $request ) {
+        $national = $request->get_param( 'employee_national_id' );
+        if ( null === $national ) {
+            $national = $request->get_param( 'national_id' );
+        }
+        if ( null === $national ) {
+            $national = $request->get_param( 'nid' );
+        }
+
+        $mobile = $request->get_param( 'mobile' );
+        if ( null === $mobile ) {
+            $mobile = $request->get_param( 'employee_mobile' );
+        }
+
+        return [
+            'national_id' => sanitize_text_field( (string) $national ),
+            'mobile'       => sanitize_text_field( (string) $mobile ),
+        ];
+    }
+
+    /**
+     * Resolve an employee user ID from identifiers.
+     */
+    protected function resolve_employee_user_from_identifiers( $national_id, $mobile = '' ) {
+        $national_id = trim( (string) $national_id );
+        $mobile      = trim( (string) $mobile );
+
         $employee = [];
+
         if ( $national_id ) {
             $employee = get_users(
                 [
@@ -1859,84 +2431,89 @@ class API_Handler {
         }
 
         if ( empty( $employee ) ) {
-            return new WP_Error( 'employee_not_found', __( 'کارمند با مشخصات واردD0شده یافت نشد. (کد ملی/شماره همراه)', 'company-wallet-manager' ), [ 'status' => 404 ] );
+            return new WP_Error( 'employee_not_found', __( 'کارمند با مشخصات وارد‌شده یافت نشد. (کد ملی/شماره همراه)', 'company-wallet-manager' ), [ 'status' => 404 ] );
         }
 
-        $employee_id = (int) $employee[0];
-
-        $otp      = wp_rand( 100000, 999999 );
-        $expires  = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp', true ) + ( 5 * MINUTE_IN_SECONDS ) );
-        $table    = $wpdb->prefix . 'cwm_payment_requests';
-        $inserted = $wpdb->insert(
-            $table,
-            [
-                'merchant_id'     => $merchant_id,
-                'employee_id'     => $employee_id,
-                'amount'          => $amount,
-                'otp'             => (string) $otp,
-                'otp_expires_at'  => $expires,
-                'failed_attempts' => 0,
-                'status'          => 'pending',
-            ]
-        );
-
-        if ( false === $inserted ) {
-            return new WP_Error( 'cwm_payment_request_failed', __( 'Unable to create payment request.', 'company-wallet-manager' ), [ 'status' => 500 ] );
-        }
-
-        $request_id = (int) $wpdb->insert_id;
-
-        $phone      = get_user_meta( $employee_id, 'mobile', true );
-        $sms        = new SMS_Handler();
-        $sms->send_otp( $phone, $otp );
-
-        $logger = new Transaction_Logger();
-        $logger->log( 'payment_request', $merchant_id, $employee_id, $amount, 'pending', [
-            'related_request' => $request_id,
-            'context'         => 'merchant_payment_request',
-            'metadata'        => [ 'expires_at' => $expires ],
-        ] );
-
-        return rest_ensure_response(
-            [
-                'status'     => 'success',
-                'message'    => __( 'Payment request created.', 'company-wallet-manager' ),
-                'request_id' => $request_id,
-            ]
-        );
+        return (int) $employee[0];
     }
 
     /**
-     * Validate the JWT token and authenticate the user.
-     *
-     * @param \WP_REST_Request $request
-     * @return bool|\WP_Error
+     * Build the payment context including remaining allowance and wallet balance.
      */
-    public function validate_token( $request ) {
-        $auth_header = $request->get_header( 'Authorization' );
-        if ( ! $auth_header ) {
-            return new \WP_Error( 'jwt_auth_no_auth_header', 'Authorization header not found.', array( 'status' => 403 ) );
+    protected function build_payment_context( $merchant_id, $employee_id, $category_id ) {
+        $categories = $this->category_manager->get_merchant_categories( $merchant_id );
+        $assigned   = array_map( 'intval', wp_list_pluck( $categories, 'id' ) );
+
+        if ( $category_id > 0 && ! in_array( (int) $category_id, $assigned, true ) ) {
+            return new WP_Error( 'cwm_category_not_assigned', __( 'این دسته‌بندی برای پذیرنده فعال نیست.', 'company-wallet-manager' ), [ 'status' => 403 ] );
         }
 
-        list( $token ) = sscanf( $auth_header, 'Bearer %s' );
-        if ( ! $token ) {
-            return new \WP_Error( 'jwt_auth_bad_auth_header', 'Authorization header malformed.', array( 'status' => 403 ) );
+        $limits = $this->category_manager->get_employee_limits( $employee_id );
+        $entry  = null;
+        foreach ( $limits as $limit ) {
+            if ( (int) $limit['category_id'] === (int) $category_id ) {
+                $entry = $limit;
+                break;
+            }
         }
 
-        // Ensure the secret key is defined in wp-config.php.
-        if ( ! defined( 'JWT_AUTH_SECRET_KEY' ) ) {
-            return new \WP_Error( 'jwt_auth_secret_not_defined', 'JWT secret key is not defined in wp-config.php.', array( 'status' => 500 ) );
-        }
+        $limit_defined = null !== $entry;
+        $limit_amount  = $entry ? (float) $entry['limit'] : 0.0;
+        $spent_amount  = $entry ? (float) $entry['spent'] : 0.0;
+        $remaining     = max( 0.0, $limit_amount - $spent_amount );
 
-        try {
-            $decoded = \Firebase\JWT\JWT::decode( $token, new \Firebase\JWT\Key( JWT_AUTH_SECRET_KEY, 'HS256' ) );
-            wp_set_current_user( $decoded->data->user->id );
-            return true;
-        } catch ( \Exception $e ) {
-            return new \WP_Error( 'jwt_auth_invalid_token', $e->getMessage(), array( 'status' => 403 ) );
-        }
+        $wallet         = new Wallet_System();
+        $wallet_balance = $wallet->get_balance( $employee_id );
+
+        return [
+            'limit_defined'   => $limit_defined,
+            'limit'           => $limit_amount,
+            'spent'           => $spent_amount,
+            'remaining'       => $remaining,
+            'wallet_balance'  => $wallet_balance,
+            'available'       => min( $remaining, $wallet_balance ),
+        ];
     }
 
+    /**
+     * Resolve the company context for an employee ensuring the requester has access.
+     */
+    protected function resolve_employee_company_context( $employee_id ) {
+        $company_id = (int) get_user_meta( $employee_id, '_cwm_company_id', true );
+
+        if ( $company_id <= 0 ) {
+            return new WP_Error( 'cwm_employee_company_missing', __( 'این کارمند به هیچ شرکتی متصل نیست.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $current_user = wp_get_current_user();
+
+        if ( $this->user_has_role( $current_user, 'company' ) ) {
+            $current_company_id = $this->get_company_post_id_for_user( $current_user->ID );
+            if ( $current_company_id && (int) $current_company_id !== $company_id ) {
+                return new WP_Error( 'cwm_forbidden_employee', __( 'شما دسترسی به مدیریت این کارمند ندارید.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+            }
+        }
+
+        return $company_id;
+    }
+
+    /**
+     * Retrieve the company post ID linked to a user account.
+     */
+    protected function get_company_post_id_for_user( $user_id ) {
+        $posts = get_posts(
+            [
+                'post_type'      => 'cwm_company',
+                'post_status'    => 'any',
+                'meta_key'       => '_cwm_company_user_id',
+                'meta_value'     => $user_id,
+                'posts_per_page' => 1,
+                'fields'         => 'ids',
+            ]
+        );
+
+        return $posts ? (int) $posts[0] : 0;
+    }
 
     /**
      * Check if the user is a merchant.
@@ -1949,6 +2526,19 @@ class API_Handler {
         }
 
         return $this->user_has_role( wp_get_current_user(), 'merchant' );
+    }
+
+    /**
+     * Allow merchants or employees to access a route.
+     */
+    public function merchant_or_employee_permission_check( WP_REST_Request $request ) {
+        if ( is_wp_error( $this->validate_token( $request ) ) ) {
+            return false;
+        }
+
+        $user = wp_get_current_user();
+
+        return $this->user_has_role( $user, 'merchant' ) || $this->user_has_role( $user, 'employee' );
     }
 
     /**
