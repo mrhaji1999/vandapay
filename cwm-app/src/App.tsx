@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/layout/ProtectedRoute';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminTransactionsPage } from './pages/admin/AdminTransactionsPage';
 import { AdminCategoriesPage } from './pages/admin/AdminCategoriesPage';
+import { AdminMerchantsPage } from './pages/admin/AdminMerchantsPage';
 import { CompanyDashboard } from './pages/company/CompanyDashboard';
 import { MerchantDashboard } from './pages/merchant/MerchantDashboard';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
@@ -40,6 +41,7 @@ const App = () => {
       <Route element={<ProtectedRoute roles={['administrator']} />}>
         <Route path="/administrator" element={<Navigate to="/admin" replace />} />
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admin/merchants" element={<AdminMerchantsPage />} />
         <Route path="/admin/categories" element={<AdminCategoriesPage />} />
         <Route path="/admin/transactions" element={<AdminTransactionsPage />} />
       </Route>

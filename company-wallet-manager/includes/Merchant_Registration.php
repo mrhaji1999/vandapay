@@ -9,6 +9,18 @@ use WP_Error;
  */
 class Merchant_Registration {
 
+        /**
+         * @var Category_Manager
+         */
+        private $category_manager;
+
+        /**
+         * Merchant_Registration constructor.
+         */
+        public function __construct( ?Category_Manager $category_manager = null ) {
+                $this->category_manager = $category_manager ?: new Category_Manager();
+        }
+
         const RATE_LIMIT_WINDOW = 600;
         const RATE_LIMIT_MAX    = 3;
 
@@ -38,6 +50,10 @@ class Merchant_Registration {
                 }
 
                 $this->store_profile_meta( $user_id, $payload );
+
+                if ( ! empty( $payload['category_ids'] ) ) {
+                        $this->category_manager->sync_merchant_categories( $user_id, $payload['category_ids'] );
+                }
 
                 $wallet = new Wallet_System();
                 $wallet->get_balance( $user_id ); // Ensure wallet row exists.
@@ -73,9 +89,42 @@ class Merchant_Registration {
                         'mobile'        => isset( $payload['mobile'] ) ? sanitize_text_field( $payload['mobile'] ) : '',
                         'email'         => isset( $payload['email'] ) ? sanitize_email( $payload['email'] ) : '',
                         'password'      => isset( $payload['password'] ) ? $payload['password'] : '',
+                        'category_ids'  => $this->sanitize_category_ids( $payload ),
                 ];
 
                 return $fields;
+        }
+
+        /**
+         * Extract and sanitize the requested category identifiers.
+         *
+         * @param array $payload Raw input payload.
+         * @return int[]
+         */
+        private function sanitize_category_ids( array $payload ) {
+                if ( isset( $payload['category_ids'] ) && is_array( $payload['category_ids'] ) ) {
+                        $values = $payload['category_ids'];
+                } elseif ( isset( $payload['category_ids'] ) && is_string( $payload['category_ids'] ) ) {
+                        $values = array_map( 'trim', explode( ',', $payload['category_ids'] ) );
+                } elseif ( isset( $payload['categories'] ) && is_array( $payload['categories'] ) ) {
+                        $values = $payload['categories'];
+                } else {
+                        $values = [];
+                }
+
+                $sanitized = array_filter(
+                        array_map(
+                                static function ( $value ) {
+                                        return absint( $value );
+                                },
+                                (array) $values
+                        ),
+                        static function ( $value ) {
+                                return $value > 0;
+                        }
+                );
+
+                return array_values( array_unique( $sanitized ) );
         }
 
         /**
@@ -110,6 +159,18 @@ class Merchant_Registration {
                 );
                 if ( ! empty( $existing ) ) {
                         return new WP_Error( 'cwm_phone_exists', __( 'An account with this phone number already exists.', 'company-wallet-manager' ), [ 'status' => 409 ] );
+                }
+
+                if ( empty( $data['category_ids'] ) ) {
+                        return new WP_Error( 'cwm_missing_categories', __( 'At least one category must be selected.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+                }
+
+                $available = wp_list_pluck( $this->category_manager->get_all_categories(), 'id' );
+
+                $invalid = array_diff( $data['category_ids'], $available );
+
+                if ( ! empty( $invalid ) ) {
+                        return new WP_Error( 'cwm_invalid_categories', __( 'One or more selected categories are invalid.', 'company-wallet-manager' ), [ 'status' => 400 ] );
                 }
 
                 return true;

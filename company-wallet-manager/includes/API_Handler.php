@@ -46,9 +46,9 @@ class API_Handler {
      * Constructor.
      */
     public function __construct() {
-        $this->company_registration  = new Company_Registration();
-        $this->merchant_registration = new Merchant_Registration();
         $this->category_manager      = new Category_Manager();
+        $this->company_registration  = new Company_Registration();
+        $this->merchant_registration = new Merchant_Registration( $this->category_manager );
 
         add_action( 'rest_api_init', array( $this, 'register_routes' ) );
         add_action( 'rest_api_init', array( $this, 'configure_cors_support' ), 15 );
@@ -343,7 +343,7 @@ class API_Handler {
             [
                 'methods'             => 'GET',
                 'callback'            => [ $this, 'list_categories' ],
-                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+                'permission_callback' => '__return_true',
             ],
             [
                 'methods'             => 'POST',
@@ -502,6 +502,19 @@ class API_Handler {
             [
                 'methods'             => 'GET',
                 'callback'            => [ $this, 'get_admin_merchants' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/merchants/(?P<id>\d+)/categories', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_admin_merchant_categories' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'update_admin_merchant_categories' ],
                 'permission_callback' => [ $this, 'admin_permission_check' ],
             ],
         ] );
@@ -1468,6 +1481,7 @@ class API_Handler {
         $rows   = [];
 
         foreach ( $users as $user ) {
+            $categories = $this->category_manager->get_merchant_categories( $user->ID );
             $rows[] = [
                 'id'            => $user->ID,
                 'name'          => $user->display_name,
@@ -1475,10 +1489,76 @@ class API_Handler {
                 'balance'       => $wallet->get_balance( $user->ID ),
                 'store_name'    => get_user_meta( $user->ID, '_cwm_store_name', true ),
                 'pending_payouts' => $this->get_pending_payout_total( $user->ID ),
+                'categories'    => $categories,
+                'category_ids'  => array_map( 'intval', wp_list_pluck( $categories, 'id' ) ),
             ];
         }
 
         return $this->respond_with_format( $request, $rows, [ 'id', 'name', 'email', 'balance', 'store_name', 'pending_payouts' ], 'merchants.csv' );
+    }
+
+    /**
+     * Admin endpoint: fetch category assignments for a specific merchant.
+     */
+    public function get_admin_merchant_categories( WP_REST_Request $request ) {
+        $merchant_id = absint( $request->get_param( 'id' ) );
+
+        if ( ! $merchant_id ) {
+            return new WP_Error( 'cwm_invalid_merchant', __( 'Merchant not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $user = get_user_by( 'id', $merchant_id );
+
+        if ( ! $user || ! in_array( 'merchant', (array) $user->roles, true ) ) {
+            return new WP_Error( 'cwm_invalid_merchant', __( 'Merchant not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [
+                    'assigned'  => $this->category_manager->get_merchant_categories( $merchant_id ),
+                    'available' => $this->category_manager->get_all_categories(),
+                ],
+            ]
+        );
+    }
+
+    /**
+     * Admin endpoint: update category assignments for a merchant.
+     */
+    public function update_admin_merchant_categories( WP_REST_Request $request ) {
+        $merchant_id = absint( $request->get_param( 'id' ) );
+
+        if ( ! $merchant_id ) {
+            return new WP_Error( 'cwm_invalid_merchant', __( 'Merchant not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $user = get_user_by( 'id', $merchant_id );
+
+        if ( ! $user || ! in_array( 'merchant', (array) $user->roles, true ) ) {
+            return new WP_Error( 'cwm_invalid_merchant', __( 'Merchant not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $category_ids = $request->get_param( 'category_ids' );
+
+        if ( ! is_array( $category_ids ) ) {
+            return new WP_Error( 'cwm_invalid_categories', __( 'Category IDs must be an array.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $available    = wp_list_pluck( $this->category_manager->get_all_categories(), 'id' );
+        $category_ids = array_values( array_intersect( array_map( 'absint', $category_ids ), $available ) );
+
+        $this->category_manager->sync_merchant_categories( $merchant_id, $category_ids );
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [
+                    'assigned' => $this->category_manager->get_merchant_categories( $merchant_id ),
+                ],
+            ]
+        );
     }
 
     /**
