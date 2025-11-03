@@ -2,6 +2,8 @@
 
 namespace CWM;
 
+require_once __DIR__ . '/class-cwm-activator.php';
+
 /**
  * Class Plugin_Loader
  *
@@ -135,17 +137,7 @@ class Plugin_Loader {
                 ) $charset_collate;";
                 dbDelta( $sql );
 
-                $table_name = $wpdb->prefix . 'cwm_categories';
-                $sql        = "CREATE TABLE $table_name (
-                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                        name VARCHAR(191) NOT NULL,
-                        slug VARCHAR(191) NOT NULL,
-                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                        PRIMARY KEY (id),
-                        UNIQUE KEY slug (slug)
-                ) $charset_collate;";
-                dbDelta( $sql );
+                CWM_Activator::create_category_tables();
 
                 $table_name = $wpdb->prefix . 'cwm_category_merchants';
                 $sql        = "CREATE TABLE $table_name (
