@@ -7,6 +7,13 @@ namespace CWM;
  */
 class Category_Manager {
     /**
+     * Whether the custom tables have been verified for the current request lifecycle.
+     *
+     * @var bool
+     */
+    protected static $tables_verified = false;
+
+    /**
      * @var string
      */
     protected $categories_table;
@@ -30,6 +37,91 @@ class Category_Manager {
         $this->categories_table = $wpdb->prefix . 'cwm_categories';
         $this->merchant_table   = $wpdb->prefix . 'cwm_category_merchants';
         $this->limits_table     = $wpdb->prefix . 'cwm_employee_category_limits';
+
+        $this->maybe_create_tables();
+    }
+
+    /**
+     * Ensure the custom tables required for category management exist.
+     *
+     * On existing installations the activation hook that creates these tables may not have
+     * executed yet. We defensively run the table creation logic so API requests do not fail
+     * with database errors when the tables are missing.
+     */
+    protected function maybe_create_tables() {
+        if ( self::$tables_verified ) {
+            return;
+        }
+
+        global $wpdb;
+
+        $expected_tables = [
+            $this->categories_table,
+            $this->merchant_table,
+            $this->limits_table,
+        ];
+
+        $missing_tables = [];
+        foreach ( $expected_tables as $table ) {
+            $query          = $wpdb->prepare( 'SHOW TABLES LIKE %s', $table );
+            $table_existing = $wpdb->get_var( $query );
+
+            if ( $table_existing !== $table ) {
+                $missing_tables[] = $table;
+            }
+        }
+
+        if ( empty( $missing_tables ) ) {
+            self::$tables_verified = true;
+            return;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset_collate = $wpdb->get_charset_collate();
+
+        $schemas = [
+            $this->categories_table => "CREATE TABLE {$this->categories_table} (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        name VARCHAR(191) NOT NULL,
+                        slug VARCHAR(191) NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY slug (slug)
+                ) {$charset_collate};",
+            $this->merchant_table   => "CREATE TABLE {$this->merchant_table} (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                        category_id BIGINT(20) UNSIGNED NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY merchant_category (merchant_id, category_id),
+                        KEY category_id (category_id)
+                ) {$charset_collate};",
+            $this->limits_table     => "CREATE TABLE {$this->limits_table} (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        employee_id BIGINT(20) UNSIGNED NOT NULL,
+                        company_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                        category_id BIGINT(20) UNSIGNED NOT NULL,
+                        spending_limit DECIMAL(20,6) NOT NULL DEFAULT 0,
+                        spent_amount DECIMAL(20,6) NOT NULL DEFAULT 0,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY employee_category (employee_id, category_id),
+                        KEY company_id (company_id),
+                        KEY category_id (category_id)
+                ) {$charset_collate};",
+        ];
+
+        foreach ( $schemas as $table => $schema ) {
+            if ( in_array( $table, $missing_tables, true ) ) {
+                dbDelta( $schema );
+            }
+        }
+
+        self::$tables_verified = true;
     }
 
     /**
@@ -87,7 +179,15 @@ class Category_Manager {
         );
 
         if ( false === $inserted ) {
-            return new \WP_Error( 'cwm_category_create_failed', __( 'Unable to create category.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+            $error_message = $wpdb->last_error ? $wpdb->last_error : __( 'Unable to create category.', 'company-wallet-manager' );
+
+            return new \WP_Error(
+                'cwm_category_create_failed',
+                $error_message,
+                [
+                    'status' => 500,
+                ]
+            );
         }
 
         return (int) $wpdb->insert_id;
