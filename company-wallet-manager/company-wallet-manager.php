@@ -4,7 +4,7 @@
  * Plugin URI:        https://example.com/
  * Description:       A 3-level wallet management system for companies, merchants, and employees integrated with WooCommerce.
  * Version:           1.0.3
- * Author:            Jules
+ * Author:            محمدرضا حاجی
  * Author URI:        https://example.com/
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
@@ -23,8 +23,14 @@ if ( ! defined( 'WPINC' ) ) {
 define( 'CWM_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
 // Require the Composer autoloader.
-require_once CWM_PLUGIN_DIR . 'vendor/autoload.php';
+if ( file_exists( CWM_PLUGIN_DIR . 'vendor/autoload.php' ) ) {
+	require_once CWM_PLUGIN_DIR . 'vendor/autoload.php';
+}
+
+// Require API controller files directly to ensure they are loaded
 require_once CWM_PLUGIN_DIR . 'includes/api/class-cwm-employee-controller.php';
+require_once CWM_PLUGIN_DIR . 'includes/api/Category_Controller.php';
+require_once CWM_PLUGIN_DIR . 'includes/api/Company_Category_Cap_Controller.php';
 
 /**
  * The callback function for plugin activation.
@@ -72,6 +78,9 @@ function cwm_plugin_init() {
 
         // Register employee specific API endpoints.
         new CWM\API\CWM_Employee_Controller();
+
+        // Change role display name
+        add_filter( 'wp_roles', array( 'CWM\Role_Manager', 'change_role_display_name' ) );
 }
 add_action( 'plugins_loaded', 'cwm_plugin_init' );
 

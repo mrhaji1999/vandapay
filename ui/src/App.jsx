@@ -47,7 +47,7 @@ const Dashboard = () => {
         {
             role: 'employee',
             path: '/employee',
-            label: 'پنل کارمند',
+            label: 'پنل مشتری',
             description: 'بررسی درخواست‌های پرداخت در انتظار تایید، تایید رمز یکبار مصرف و رصد تراکنش‌ها',
         },
     ].filter(({ role }) => roles.includes(role) || isAdmin);

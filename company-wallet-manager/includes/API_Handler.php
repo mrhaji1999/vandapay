@@ -471,6 +471,95 @@ class API_Handler {
             ],
         ] );
 
+        // Store endpoints
+        register_rest_route( $this->namespace, '/store/info', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_store_info' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+            [
+                'methods'             => 'PUT',
+                'callback'            => [ $this, 'update_store_info' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/stores', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_stores_list' ],
+                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/stores/(?P<id>\d+)', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_store_details' ],
+                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/stores/(?P<id>\d+)/products', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_store_products' ],
+                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+            ],
+        ] );
+
+        // Revenue statistics endpoints
+        register_rest_route( $this->namespace, '/store/revenue/daily', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_daily_revenue' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/store/revenue/monthly', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_monthly_revenue' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/store/revenue/yearly', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_yearly_revenue' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+        ] );
+
+        // Iran provinces and cities endpoints
+        register_rest_route( $this->namespace, '/iran/provinces', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_iran_provinces' ],
+                'permission_callback' => '__return_true',
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/iran/provinces/(?P<province>[a-zA-Z0-9-]+)/cities', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_iran_cities' ],
+                'permission_callback' => '__return_true',
+            ],
+        ] );
+
+        // Global product search
+        register_rest_route( $this->namespace, '/products/search', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'search_products' ],
+                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+            ],
+        ] );
+
         $this->register_admin_routes();
 
         $this->category_controller->register_routes();
@@ -2730,6 +2819,698 @@ class API_Handler {
         }
 
         return in_array( $role, (array) $user->roles, true );
+    }
+
+    /**
+     * Get store information for the current merchant.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_store_info( WP_REST_Request $request ) {
+        $user = wp_get_current_user();
+        $merchant_id = $user->ID;
+
+        // Find or create store post for this merchant
+        $store_query = new WP_Query( [
+            'post_type'      => 'cwm_store',
+            'post_status'    => 'any',
+            'posts_per_page' => 1,
+            'meta_query'     => [
+                [
+                    'key'   => 'merchant_id',
+                    'value' => $merchant_id,
+                ],
+            ],
+        ] );
+
+        if ( $store_query->have_posts() ) {
+            $store = $store_query->posts[0];
+            $store_id = $store->ID;
+        } else {
+            // Create new store post
+            $store_id = wp_insert_post( [
+                'post_type'   => 'cwm_store',
+                'post_status' => 'publish',
+                'post_title'  => get_user_meta( $merchant_id, 'store_name', true ) ?: 'فروشگاه من',
+            ] );
+            update_post_meta( $store_id, 'merchant_id', $merchant_id );
+        }
+
+        $store_image = get_post_meta( $store_id, 'store_image', true );
+        $store_images = get_post_meta( $store_id, 'store_images', true ) ?: [];
+        $store_name = get_post_meta( $store_id, 'store_name', true ) ?: get_the_title( $store_id );
+        $store_address = get_post_meta( $store_id, 'store_address', true );
+        $store_phone = get_post_meta( $store_id, 'store_phone', true );
+        $store_slogan = get_post_meta( $store_id, 'store_slogan', true );
+        $store_province = get_post_meta( $store_id, 'store_province', true );
+        $store_city = get_post_meta( $store_id, 'store_city', true );
+        $store_description = get_post_field( 'post_content', $store_id ) ?: get_post_meta( $store_id, 'store_description', true );
+
+        // Get products
+        $products_query = new WP_Query( [
+            'post_type'      => 'cwm_product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'meta_query'     => [
+                [
+                    'key'   => 'store_id',
+                    'value' => $store_id,
+                ],
+            ],
+        ] );
+
+        $products = [];
+        if ( $products_query->have_posts() ) {
+            foreach ( $products_query->posts as $product ) {
+                $products[] = [
+                    'id'          => $product->ID,
+                    'name'        => $product->post_title,
+                    'description' => $product->post_content,
+                    'image'       => get_the_post_thumbnail_url( $product->ID, 'medium' ) ?: '',
+                ];
+            }
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'store_id'         => $store_id,
+                'store_image'      => $store_image,
+                'store_images'     => is_array( $store_images ) ? $store_images : [],
+                'store_name'       => $store_name,
+                'store_address'    => $store_address,
+                'store_phone'      => $store_phone,
+                'store_slogan'     => $store_slogan,
+                'store_province'   => $store_province,
+                'store_city'       => $store_city,
+                'store_description' => $store_description,
+                'products'         => $products,
+            ],
+        ] );
+    }
+
+    /**
+     * Update store information for the current merchant.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function update_store_info( WP_REST_Request $request ) {
+        $user = wp_get_current_user();
+        $merchant_id = $user->ID;
+
+        // Find or create store post
+        $store_query = new WP_Query( [
+            'post_type'      => 'cwm_store',
+            'post_status'    => 'any',
+            'posts_per_page' => 1,
+            'meta_query'     => [
+                [
+                    'key'   => 'merchant_id',
+                    'value' => $merchant_id,
+                ],
+            ],
+        ] );
+
+        if ( $store_query->have_posts() ) {
+            $store_id = $store_query->posts[0]->ID;
+        } else {
+            $store_id = wp_insert_post( [
+                'post_type'   => 'cwm_store',
+                'post_status' => 'publish',
+                'post_title'  => $request->get_param( 'store_name' ) ?: 'فروشگاه من',
+            ] );
+            update_post_meta( $store_id, 'merchant_id', $merchant_id );
+        }
+
+        // Update store fields
+        $store_name = $request->get_param( 'store_name' );
+        if ( $store_name ) {
+            wp_update_post( [
+                'ID'         => $store_id,
+                'post_title'  => sanitize_text_field( $store_name ),
+            ] );
+            update_post_meta( $store_id, 'store_name', sanitize_text_field( $store_name ) );
+        }
+
+        $store_image = $request->get_param( 'store_image' );
+        if ( $store_image !== null ) {
+            update_post_meta( $store_id, 'store_image', esc_url_raw( $store_image ) );
+        }
+
+        $store_images = $request->get_param( 'store_images' );
+        if ( is_array( $store_images ) ) {
+            $sanitized_images = array_map( 'esc_url_raw', $store_images );
+            update_post_meta( $store_id, 'store_images', $sanitized_images );
+        }
+
+        $store_address = $request->get_param( 'store_address' );
+        if ( $store_address !== null ) {
+            update_post_meta( $store_id, 'store_address', sanitize_text_field( $store_address ) );
+        }
+
+        $store_phone = $request->get_param( 'store_phone' );
+        if ( $store_phone !== null ) {
+            update_post_meta( $store_id, 'store_phone', sanitize_text_field( $store_phone ) );
+        }
+
+        $store_slogan = $request->get_param( 'store_slogan' );
+        if ( $store_slogan !== null ) {
+            update_post_meta( $store_id, 'store_slogan', sanitize_text_field( $store_slogan ) );
+        }
+
+        $store_description = $request->get_param( 'store_description' );
+        if ( $store_description !== null ) {
+            wp_update_post( [
+                'ID'           => $store_id,
+                'post_content' => wp_kses_post( $store_description ),
+            ] );
+            update_post_meta( $store_id, 'store_description', wp_kses_post( $store_description ) );
+        }
+
+        $store_province = $request->get_param( 'store_province' );
+        if ( $store_province !== null ) {
+            update_post_meta( $store_id, 'store_province', sanitize_text_field( $store_province ) );
+        }
+
+        $store_city = $request->get_param( 'store_city' );
+        if ( $store_city !== null ) {
+            update_post_meta( $store_id, 'store_city', sanitize_text_field( $store_city ) );
+        }
+
+        // Update products
+        $products = $request->get_param( 'products' );
+        if ( is_array( $products ) ) {
+            // Delete existing products
+            $existing_products = new WP_Query( [
+                'post_type'      => 'cwm_product',
+                'post_status'    => 'any',
+                'posts_per_page' => -1,
+                'meta_query'     => [
+                    [
+                        'key'   => 'store_id',
+                        'value' => $store_id,
+                    ],
+                ],
+            ] );
+
+            if ( $existing_products->have_posts() ) {
+                foreach ( $existing_products->posts as $product ) {
+                    wp_delete_post( $product->ID, true );
+                }
+            }
+
+            // Create new products
+            foreach ( $products as $product_data ) {
+                if ( ! empty( $product_data['name'] ) ) {
+                    $product_id = wp_insert_post( [
+                        'post_type'    => 'cwm_product',
+                        'post_status'  => 'publish',
+                        'post_title'   => sanitize_text_field( $product_data['name'] ),
+                        'post_content' => isset( $product_data['description'] ) ? wp_kses_post( $product_data['description'] ) : '',
+                    ] );
+                    update_post_meta( $product_id, 'store_id', $store_id );
+                    if ( ! empty( $product_data['image'] ) ) {
+                        set_post_thumbnail( $product_id, attachment_url_to_postid( esc_url_raw( $product_data['image'] ) ) );
+                    }
+                }
+            }
+        }
+
+        return $this->get_store_info( $request );
+    }
+
+    /**
+     * Get list of all stores.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_stores_list( WP_REST_Request $request ) {
+        $province = sanitize_text_field( $request->get_param( 'province' ) );
+        $city = sanitize_text_field( $request->get_param( 'city' ) );
+
+        $query_args = [
+            'post_type'      => 'cwm_store',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+        ];
+
+        if ( $province || $city ) {
+            $query_args['meta_query'] = [];
+            if ( $province ) {
+                $query_args['meta_query'][] = [
+                    'key'   => 'store_province',
+                    'value' => $province,
+                ];
+            }
+            if ( $city ) {
+                $query_args['meta_query'][] = [
+                    'key'   => 'store_city',
+                    'value' => $city,
+                ];
+            }
+        }
+
+        $stores_query = new WP_Query( $query_args );
+
+        $stores = [];
+        if ( $stores_query->have_posts() ) {
+            foreach ( $stores_query->posts as $store ) {
+                $store_id = $store->ID;
+                $store_image = get_post_meta( $store_id, 'store_image', true );
+                $store_name = get_post_meta( $store_id, 'store_name', true ) ?: $store->post_title;
+                $store_province = get_post_meta( $store_id, 'store_province', true );
+                $store_city = get_post_meta( $store_id, 'store_city', true );
+                $store_description = wp_trim_words( get_post_field( 'post_content', $store_id ) ?: get_post_meta( $store_id, 'store_description', true ), 20 );
+
+                $stores[] = [
+                    'id'          => $store_id,
+                    'name'        => $store_name,
+                    'image'       => $store_image ?: get_the_post_thumbnail_url( $store_id, 'medium' ) ?: '',
+                    'description' => $store_description,
+                    'province'     => $store_province,
+                    'city'         => $store_city,
+                ];
+            }
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $stores,
+        ] );
+    }
+
+    /**
+     * Get store details by ID.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_store_details( WP_REST_Request $request ) {
+        $store_id = absint( $request->get_param( 'id' ) );
+        $store = get_post( $store_id );
+
+        if ( ! $store || $store->post_type !== 'cwm_store' || $store->post_status !== 'publish' ) {
+            return new WP_Error( 'cwm_store_not_found', __( 'Store not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $store_image = get_post_meta( $store_id, 'store_image', true );
+        $store_name = get_post_meta( $store_id, 'store_name', true ) ?: $store->post_title;
+        $store_address = get_post_meta( $store_id, 'store_address', true );
+        $store_phone = get_post_meta( $store_id, 'store_phone', true );
+        $store_description = get_post_field( 'post_content', $store_id ) ?: get_post_meta( $store_id, 'store_description', true );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'id'          => $store_id,
+                'name'        => $store_name,
+                'image'       => $store_image ?: get_the_post_thumbnail_url( $store_id, 'large' ) ?: '',
+                'description' => $store_description,
+                'address'     => $store_address,
+                'phone'       => $store_phone,
+            ],
+        ] );
+    }
+
+    /**
+     * Get products for a specific store.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_store_products( WP_REST_Request $request ) {
+        $store_id = absint( $request->get_param( 'id' ) );
+        $store = get_post( $store_id );
+
+        if ( ! $store || $store->post_type !== 'cwm_store' ) {
+            return new WP_Error( 'cwm_store_not_found', __( 'Store not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $search = $request->get_param( 'search' );
+        $products_query_args = [
+            'post_type'      => 'cwm_product',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'meta_query'     => [
+                [
+                    'key'   => 'store_id',
+                    'value' => $store_id,
+                ],
+            ],
+        ];
+
+        if ( $search ) {
+            $products_query_args['s'] = sanitize_text_field( $search );
+        }
+
+        $products_query = new WP_Query( $products_query_args );
+
+        $products = [];
+        if ( $products_query->have_posts() ) {
+            foreach ( $products_query->posts as $product ) {
+                $products[] = [
+                    'id'          => $product->ID,
+                    'name'        => $product->post_title,
+                    'description' => $product->post_content,
+                    'image'       => get_the_post_thumbnail_url( $product->ID, 'medium' ) ?: '',
+                ];
+            }
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $products,
+        ] );
+    }
+
+    /**
+     * Get daily revenue statistics for the current merchant.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_daily_revenue( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $merchant_id = $user->ID;
+        $days = absint( $request->get_param( 'days' ) ) ?: 30;
+
+        $table = $wpdb->prefix . 'cwm_transactions';
+        $sql = $wpdb->prepare(
+            "SELECT DATE(created_at) as date, SUM(amount) as revenue
+            FROM $table
+            WHERE receiver_id = %d
+            AND type = 'payment'
+            AND status = 'completed'
+            AND created_at >= DATE_SUB(NOW(), INTERVAL %d DAY)
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC",
+            $merchant_id,
+            $days
+        );
+
+        $results = $wpdb->get_results( $sql, ARRAY_A );
+        $data = [];
+        foreach ( $results as $row ) {
+            $data[] = [
+                'date'    => $row['date'],
+                'revenue' => floatval( $row['revenue'] ),
+            ];
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $data,
+        ] );
+    }
+
+    /**
+     * Get monthly revenue statistics for the current merchant.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_monthly_revenue( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $merchant_id = $user->ID;
+        $months = absint( $request->get_param( 'months' ) ) ?: 12;
+
+        $table = $wpdb->prefix . 'cwm_transactions';
+        $sql = $wpdb->prepare(
+            "SELECT DATE_FORMAT(created_at, '%%Y-%%m') as month, SUM(amount) as revenue
+            FROM $table
+            WHERE receiver_id = %d
+            AND type = 'payment'
+            AND status = 'completed'
+            AND created_at >= DATE_SUB(NOW(), INTERVAL %d MONTH)
+            GROUP BY DATE_FORMAT(created_at, '%%Y-%%m')
+            ORDER BY month ASC",
+            $merchant_id,
+            $months
+        );
+
+        $results = $wpdb->get_results( $sql, ARRAY_A );
+        $data = [];
+        foreach ( $results as $row ) {
+            $data[] = [
+                'month'   => $row['month'],
+                'revenue' => floatval( $row['revenue'] ),
+            ];
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $data,
+        ] );
+    }
+
+    /**
+     * Get yearly revenue statistics for the current merchant.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
+     */
+    public function get_yearly_revenue( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $merchant_id = $user->ID;
+        $years = absint( $request->get_param( 'years' ) ) ?: 5;
+
+        $table = $wpdb->prefix . 'cwm_transactions';
+        $sql = $wpdb->prepare(
+            "SELECT YEAR(created_at) as year, SUM(amount) as revenue
+            FROM $table
+            WHERE receiver_id = %d
+            AND type = 'payment'
+            AND status = 'completed'
+            AND created_at >= DATE_SUB(NOW(), INTERVAL %d YEAR)
+            GROUP BY YEAR(created_at)
+            ORDER BY year ASC",
+            $merchant_id,
+            $years
+        );
+
+        $results = $wpdb->get_results( $sql, ARRAY_A );
+        $data = [];
+        foreach ( $results as $row ) {
+            $data[] = [
+                'year'    => intval( $row['year'] ),
+                'revenue' => floatval( $row['revenue'] ),
+            ];
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $data,
+        ] );
+    }
+
+    /**
+     * Get list of Iran provinces.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response Response object.
+     */
+    public function get_iran_provinces( WP_REST_Request $request ) {
+        $provinces = [
+            [ 'id' => 'tehran', 'name' => 'تهران' ],
+            [ 'id' => 'isfahan', 'name' => 'اصفهان' ],
+            [ 'id' => 'fars', 'name' => 'فارس' ],
+            [ 'id' => 'khuzestan', 'name' => 'خوزستان' ],
+            [ 'id' => 'razavi-khorasan', 'name' => 'خراسان رضوی' ],
+            [ 'id' => 'east-azerbaijan', 'name' => 'آذربایجان شرقی' ],
+            [ 'id' => 'mazandaran', 'name' => 'مازندران' ],
+            [ 'id' => 'alborz', 'name' => 'البرز' ],
+            [ 'id' => 'shiraz', 'name' => 'شیراز' ],
+            [ 'id' => 'qom', 'name' => 'قم' ],
+            [ 'id' => 'gilan', 'name' => 'گیلان' ],
+            [ 'id' => 'golestan', 'name' => 'گلستان' ],
+            [ 'id' => 'kerman', 'name' => 'کرمان' ],
+            [ 'id' => 'kermanshah', 'name' => 'کرمانشاه' ],
+            [ 'id' => 'yazd', 'name' => 'یزد' ],
+            [ 'id' => 'ardabil', 'name' => 'اردبیل' ],
+            [ 'id' => 'bushehr', 'name' => 'بوشهر' ],
+            [ 'id' => 'chaharmahal-bakhtiari', 'name' => 'چهارمحال و بختیاری' ],
+            [ 'id' => 'south-khorasan', 'name' => 'خراسان جنوبی' ],
+            [ 'id' => 'north-khorasan', 'name' => 'خراسان شمالی' ],
+            [ 'id' => 'kohgiluyeh-boyer-ahmad', 'name' => 'کهگیلویه و بویراحمد' ],
+            [ 'id' => 'kurdistan', 'name' => 'کردستان' ],
+            [ 'id' => 'lorestan', 'name' => 'لرستان' ],
+            [ 'id' => 'markazi', 'name' => 'مرکزی' ],
+            [ 'id' => 'hormozgan', 'name' => 'هرمزگان' ],
+            [ 'id' => 'hamadan', 'name' => 'همدان' ],
+            [ 'id' => 'zanjan', 'name' => 'زنجان' ],
+            [ 'id' => 'semnan', 'name' => 'سمنان' ],
+            [ 'id' => 'sistan-baluchestan', 'name' => 'سیستان و بلوچستان' ],
+            [ 'id' => 'west-azerbaijan', 'name' => 'آذربایجان غربی' ],
+            [ 'id' => 'qazvin', 'name' => 'قزوین' ],
+        ];
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $provinces,
+        ] );
+    }
+
+    /**
+     * Get cities for a specific province.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response Response object.
+     */
+    public function get_iran_cities( WP_REST_Request $request ) {
+        $province = sanitize_text_field( $request->get_param( 'province' ) );
+        
+        $cities_map = [
+            'tehran' => [
+                [ 'id' => 'tehran', 'name' => 'تهران' ],
+                [ 'id' => 'karaj', 'name' => 'کرج' ],
+                [ 'id' => 'eslamshahr', 'name' => 'اسلامشهر' ],
+                [ 'id' => 'rey', 'name' => 'ری' ],
+                [ 'id' => 'varamin', 'name' => 'ورامین' ],
+            ],
+            'isfahan' => [
+                [ 'id' => 'isfahan', 'name' => 'اصفهان' ],
+                [ 'id' => 'kashan', 'name' => 'کاشان' ],
+                [ 'id' => 'najafabad', 'name' => 'نجف‌آباد' ],
+                [ 'id' => 'shahinshahr', 'name' => 'شاهین‌شهر' ],
+            ],
+            'fars' => [
+                [ 'id' => 'shiraz', 'name' => 'شیراز' ],
+                [ 'id' => 'marvdasht', 'name' => 'مرودشت' ],
+                [ 'id' => 'jahrom', 'name' => 'جهرم' ],
+            ],
+            'khuzestan' => [
+                [ 'id' => 'ahvaz', 'name' => 'اهواز' ],
+                [ 'id' => 'abadan', 'name' => 'آبادان' ],
+                [ 'id' => 'khorramshahr', 'name' => 'خرمشهر' ],
+            ],
+            'razavi-khorasan' => [
+                [ 'id' => 'mashhad', 'name' => 'مشهد' ],
+                [ 'id' => 'sabzevar', 'name' => 'سبزوار' ],
+                [ 'id' => 'neishabur', 'name' => 'نیشابور' ],
+            ],
+            'east-azerbaijan' => [
+                [ 'id' => 'tabriz', 'name' => 'تبریز' ],
+                [ 'id' => 'maragheh', 'name' => 'مراغه' ],
+            ],
+            'mazandaran' => [
+                [ 'id' => 'sari', 'name' => 'ساری' ],
+                [ 'id' => 'babol', 'name' => 'بابل' ],
+                [ 'id' => 'amol', 'name' => 'آمل' ],
+            ],
+            'alborz' => [
+                [ 'id' => 'karaj', 'name' => 'کرج' ],
+                [ 'id' => 'savojbolagh', 'name' => 'ساوجبلاغ' ],
+            ],
+        ];
+
+        $cities = isset( $cities_map[ $province ] ) ? $cities_map[ $province ] : [];
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $cities,
+        ] );
+    }
+
+    /**
+     * Search products across all stores.
+     *
+     * @param \WP_REST_Request $request Full details about the request.
+     * @return \WP_REST_Response Response object.
+     */
+    public function search_products( WP_REST_Request $request ) {
+        $search = sanitize_text_field( $request->get_param( 'q' ) );
+        $province = sanitize_text_field( $request->get_param( 'province' ) );
+        $city = sanitize_text_field( $request->get_param( 'city' ) );
+
+        if ( ! $search ) {
+            return rest_ensure_response( [
+                'status' => 'success',
+                'data'   => [],
+            ] );
+        }
+
+        $products_query_args = [
+            'post_type'      => 'cwm_product',
+            'post_status'    => 'publish',
+            'posts_per_page' => 50,
+            's'              => $search,
+        ];
+
+        // Filter by province and city if provided
+        if ( $province || $city ) {
+            $store_meta_query = [];
+            if ( $province ) {
+                $store_meta_query[] = [
+                    'key'   => 'store_province',
+                    'value' => $province,
+                ];
+            }
+            if ( $city ) {
+                $store_meta_query[] = [
+                    'key'   => 'store_city',
+                    'value' => $city,
+                ];
+            }
+
+            // Get store IDs matching province/city
+            $store_query = new WP_Query( [
+                'post_type'      => 'cwm_store',
+                'post_status'    => 'publish',
+                'posts_per_page' => -1,
+                'fields'         => 'ids',
+                'meta_query'     => $store_meta_query,
+            ] );
+
+            $store_ids = $store_query->posts;
+            if ( ! empty( $store_ids ) ) {
+                $products_query_args['meta_query'] = [
+                    [
+                        'key'     => 'store_id',
+                        'value'   => $store_ids,
+                        'compare' => 'IN',
+                    ],
+                ];
+            } else {
+                // No stores match, return empty
+                return rest_ensure_response( [
+                    'status' => 'success',
+                    'data'   => [],
+                ] );
+            }
+        }
+
+        $products_query = new WP_Query( $products_query_args );
+
+        $products = [];
+        if ( $products_query->have_posts() ) {
+            foreach ( $products_query->posts as $product ) {
+                $store_id = get_post_meta( $product->ID, 'store_id', true );
+                $store = get_post( $store_id );
+                $store_name = get_post_meta( $store_id, 'store_name', true ) ?: ( $store ? $store->post_title : '' );
+
+                $products[] = [
+                    'id'          => $product->ID,
+                    'name'        => $product->post_title,
+                    'description' => $product->post_content,
+                    'image'       => get_the_post_thumbnail_url( $product->ID, 'medium' ) ?: '',
+                    'store_id'    => $store_id,
+                    'store_name'  => $store_name,
+                ];
+            }
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $products,
+        ] );
     }
 
     /**

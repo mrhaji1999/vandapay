@@ -7,7 +7,7 @@ const navigation = [
     { label: 'داشبورد', to: '/dashboard' },
     { label: 'پنل شرکت', to: '/company' },
     { label: 'پنل پذیرنده', to: '/merchant' },
-    { label: 'پنل کارمند', to: '/employee' },
+    { label: 'پنل مشتری', to: '/employee' },
 ];
 
 const PanelLayout = ({ title, description, actions, children }) => {
