@@ -24,15 +24,25 @@ export const AuthProvider = ({ children }) => {
 
         try {
             setIsLoading(true);
-            const response = await apiClient.get('/wp-json/cwm/v1/profile', {
+            const response = await apiClient.get('/me', {
                 headers: { Authorization: `Bearer ${activeToken}` },
             });
             setUser(response.data.data);
             return true;
         } catch (error) {
             console.error('Failed to fetch profile:', error);
-            logout();
-            return false;
+            // Try fallback to /profile if /me fails
+            try {
+                const fallbackResponse = await apiClient.get('/profile', {
+                    headers: { Authorization: `Bearer ${activeToken}` },
+                });
+                setUser(fallbackResponse.data.data);
+                return true;
+            } catch (fallbackError) {
+                console.error('Failed to fetch profile from fallback:', fallbackError);
+                logout();
+                return false;
+            }
         } finally {
             setIsLoading(false);
         }

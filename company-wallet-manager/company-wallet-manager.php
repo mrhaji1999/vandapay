@@ -97,6 +97,14 @@ add_action( 'init', 'cwm_register_shortcode' );
  * Render the React app.
  */
 function cwm_render_react_app() {
+    // Enqueue the CSS file.
+    wp_enqueue_style(
+        'cwm-react-app-css',
+        plugin_dir_url( __FILE__ ) . 'assets/css/ui-bundle.css',
+        array(),
+        '1.0.3'
+    );
+
     // Enqueue the script.
     wp_enqueue_script(
         'cwm-react-app',

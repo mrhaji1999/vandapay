@@ -94,8 +94,11 @@ class Category_Controller extends WP_REST_Controller {
 
     /**
      * List all categories.
+     *
+     * @param WP_REST_Request $request Full details about the request.
+     * @return WP_REST_Response|WP_Error Response object on success, or WP_Error object on failure.
      */
-    public function get_items( WP_REST_Request $request ) { // phpcs:ignore VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable
+    public function get_items( $request ) {
         return rest_ensure_response(
             [
                 'categories' => $this->category_manager->get_all_categories(),
@@ -106,7 +109,7 @@ class Category_Controller extends WP_REST_Controller {
     /**
      * Create a category.
      */
-    public function create_item( WP_REST_Request $request ) {
+    public function create_item( $request ) {
         $name = $request->get_param( 'name' );
 
         $created = $this->category_manager->create_category( $name );
@@ -122,7 +125,7 @@ class Category_Controller extends WP_REST_Controller {
     /**
      * Retrieve a single category.
      */
-    public function get_item( WP_REST_Request $request ) {
+    public function get_item( $request ) {
         $category = $this->category_manager->get_category( (int) $request['id'] );
 
         if ( ! $category ) {
@@ -135,7 +138,7 @@ class Category_Controller extends WP_REST_Controller {
     /**
      * Update a category.
      */
-    public function update_item( WP_REST_Request $request ) {
+    public function update_item( $request ) {
         $category_id = (int) $request['id'];
         $name        = $request->get_param( 'name' );
 
@@ -152,7 +155,7 @@ class Category_Controller extends WP_REST_Controller {
     /**
      * Delete a category.
      */
-    public function delete_item( WP_REST_Request $request ) {
+    public function delete_item( $request ) {
         $category_id = (int) $request['id'];
 
         $deleted = $this->category_manager->delete_category( $category_id );

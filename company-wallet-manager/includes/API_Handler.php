@@ -333,6 +333,15 @@ class API_Handler {
             ],
         ] );
 
+        // Alias for /profile - commonly used as /me
+        register_rest_route( $this->namespace, '/me', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_profile' ],
+                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+            ],
+        ] );
+
         register_rest_route( $this->namespace, '/wallet/charge', [
             [
                 'methods'             => 'POST',
@@ -2559,18 +2568,56 @@ class API_Handler {
             return new \WP_Error( 'jwt_auth_bad_auth_header', 'Authorization header malformed.', array( 'status' => 403 ) );
         }
 
-        // Ensure the secret key is defined in wp-config.php.
+        // First, try to use jwt-auth plugin's validation
+        // jwt-auth plugin hooks into 'determine_current_user' filter
+        // We need to manually trigger it by checking if user is already set
+        $current_user_id = wp_get_current_user()->ID;
+        if ( $current_user_id > 0 ) {
+            // User is already authenticated (likely by jwt-auth plugin)
+            return true;
+        }
+
+        // Try to decode token manually
+        // Check if JWT_AUTH_SECRET_KEY is defined
         if ( ! defined( 'JWT_AUTH_SECRET_KEY' ) ) {
-            return new \WP_Error( 'jwt_auth_secret_not_defined', 'JWT secret key is not defined in wp-config.php.', array( 'status' => 500 ) );
+            // Try to get secret from jwt-auth plugin's option
+            $jwt_secret = get_option( 'jwt_auth_secret_key' );
+            if ( ! $jwt_secret ) {
+                return new \WP_Error( 'jwt_auth_secret_not_defined', 'JWT secret key is not defined.', array( 'status' => 500 ) );
+            }
+        } else {
+            $jwt_secret = JWT_AUTH_SECRET_KEY;
         }
 
         try {
-            $decoded = \Firebase\JWT\JWT::decode( $token, new \Firebase\JWT\Key( JWT_AUTH_SECRET_KEY, 'HS256' ) );
-            wp_set_current_user( $decoded->data->user->id );
-            return true;
+            $decoded = \Firebase\JWT\JWT::decode( $token, new \Firebase\JWT\Key( $jwt_secret, 'HS256' ) );
+            
+            // Extract user ID from different possible token structures
+            $user_id = null;
+            if ( isset( $decoded->data->user->id ) ) {
+                $user_id = (int) $decoded->data->user->id;
+            } elseif ( isset( $decoded->data->user_id ) ) {
+                $user_id = (int) $decoded->data->user_id;
+            } elseif ( isset( $decoded->user_id ) ) {
+                $user_id = (int) $decoded->user_id;
+            } elseif ( isset( $decoded->id ) ) {
+                $user_id = (int) $decoded->id;
+            }
+            
+            if ( $user_id && $user_id > 0 ) {
+                // Verify user exists
+                $user = get_userdata( $user_id );
+                if ( $user ) {
+                    wp_set_current_user( $user_id );
+                    return true;
+                }
+            }
         } catch ( \Exception $e ) {
-            return new \WP_Error( 'jwt_auth_invalid_token', $e->getMessage(), array( 'status' => 403 ) );
+            $this->debug_log( 'JWT decode failed', array( 'error' => $e->getMessage() ) );
         }
+
+        // If all methods fail, return error
+        return new \WP_Error( 'jwt_auth_invalid_token', 'Invalid or expired token. Please login again.', array( 'status' => 403 ) );
     }
 
 

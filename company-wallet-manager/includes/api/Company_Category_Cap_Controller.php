@@ -105,7 +105,7 @@ class Company_Category_Cap_Controller extends WP_REST_Controller {
     /**
      * Fetch company caps.
      */
-    public function get_items( WP_REST_Request $request ) {
+    public function get_items( $request ) {
         $company_id = absint( $request->get_param( 'company_id' ) );
 
         $company_validation = $this->validate_company( $company_id );
@@ -124,7 +124,7 @@ class Company_Category_Cap_Controller extends WP_REST_Controller {
     /**
      * Create or update company caps.
      */
-    public function create_item( WP_REST_Request $request ) {
+    public function create_item( $request ) {
         $company_id = absint( $request->get_param( 'company_id' ) );
 
         $company_validation = $this->validate_company( $company_id );
@@ -170,7 +170,7 @@ class Company_Category_Cap_Controller extends WP_REST_Controller {
     /**
      * Delete a single cap entry.
      */
-    public function delete_item( WP_REST_Request $request ) {
+    public function delete_item( $request ) {
         $company_id  = absint( $request['company_id'] );
         $category_id = absint( $request['category_id'] );
 
