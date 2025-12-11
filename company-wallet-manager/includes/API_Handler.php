@@ -115,6 +115,7 @@ class API_Handler {
         return $served;
     }
 
+
     /**
      * Return the list of allowed CORS origins.
      *
@@ -333,15 +334,6 @@ class API_Handler {
             ],
         ] );
 
-        // Alias for /profile - commonly used as /me
-        register_rest_route( $this->namespace, '/me', [
-            [
-                'methods'             => 'GET',
-                'callback'            => [ $this, 'get_profile' ],
-                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
-            ],
-        ] );
-
         register_rest_route( $this->namespace, '/wallet/charge', [
             [
                 'methods'             => 'POST',
@@ -418,6 +410,51 @@ class API_Handler {
             ],
         ] );
 
+        register_rest_route( $this->namespace, '/employee/merchants', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_employee_merchants' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/employee/merchants/(?P<id>\d+)/products', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_merchant_products' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/employee/products/search', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'search_all_products' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/merchant/revenue-stats', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_merchant_revenue_stats' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/merchant/profile', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_merchant_profile' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'update_merchant_profile' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+        ] );
+
         register_rest_route( $this->namespace, '/company/employees/(?P<employee_id>\d+)/limits', [
             [
                 'methods'             => 'GET',
@@ -480,92 +517,142 @@ class API_Handler {
             ],
         ] );
 
-        // Store endpoints
-        register_rest_route( $this->namespace, '/store/info', [
+        // Product Categories Routes (shared, visible to all merchants)
+        register_rest_route( $this->namespace, '/product-categories', [
             [
                 'methods'             => 'GET',
-                'callback'            => [ $this, 'get_store_info' ],
+                'callback'            => [ $this, 'list_product_categories' ],
+                'permission_callback' => '__return_true',
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'create_product_category' ],
                 'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+        ] );
+
+        // Products Routes
+        register_rest_route( $this->namespace, '/merchant/products', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'list_merchant_products' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'create_product' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/merchant/products/(?P<id>\d+)', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_product' ],
+                'permission_callback' => '__return_true',
             ],
             [
                 'methods'             => 'PUT',
-                'callback'            => [ $this, 'update_store_info' ],
+                'callback'            => [ $this, 'update_product' ],
+                'permission_callback' => [ $this, 'merchant_permission_check' ],
+            ],
+            [
+                'methods'             => 'DELETE',
+                'callback'            => [ $this, 'delete_product' ],
                 'permission_callback' => [ $this, 'merchant_permission_check' ],
             ],
         ] );
 
-        register_rest_route( $this->namespace, '/stores', [
+        // Cart Routes
+        register_rest_route( $this->namespace, '/cart', [
             [
                 'methods'             => 'GET',
-                'callback'            => [ $this, 'get_stores_list' ],
-                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+                'callback'            => [ $this, 'get_cart' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
             ],
         ] );
 
-        register_rest_route( $this->namespace, '/stores/(?P<id>\d+)', [
+        register_rest_route( $this->namespace, '/cart/add', [
             [
-                'methods'             => 'GET',
-                'callback'            => [ $this, 'get_store_details' ],
-                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'add_to_cart' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
             ],
         ] );
 
-        register_rest_route( $this->namespace, '/stores/(?P<id>\d+)/products', [
+        register_rest_route( $this->namespace, '/cart/remove/(?P<id>\d+)', [
             [
-                'methods'             => 'GET',
-                'callback'            => [ $this, 'get_store_products' ],
-                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+                'methods'             => 'DELETE',
+                'callback'            => [ $this, 'remove_from_cart' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
             ],
         ] );
 
-        // Revenue statistics endpoints
-        register_rest_route( $this->namespace, '/store/revenue/daily', [
+        register_rest_route( $this->namespace, '/cart/update/(?P<id>\d+)', [
+            [
+                'methods'             => 'PUT',
+                'callback'            => [ $this, 'update_cart_item' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/cart/clear', [
+            [
+                'methods'             => 'DELETE',
+                'callback'            => [ $this, 'clear_cart' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
+            ],
+        ] );
+
+        // Orders Routes
+        register_rest_route( $this->namespace, '/orders', [
             [
                 'methods'             => 'GET',
-                'callback'            => [ $this, 'get_daily_revenue' ],
+                'callback'            => [ $this, 'list_orders' ],
+                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'create_order' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/orders/(?P<id>\d+)', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_order' ],
+                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+            ],
+            [
+                'methods'             => 'PUT',
+                'callback'            => [ $this, 'update_order_status' ],
                 'permission_callback' => [ $this, 'merchant_permission_check' ],
             ],
         ] );
 
-        register_rest_route( $this->namespace, '/store/revenue/monthly', [
+        register_rest_route( $this->namespace, '/merchant/orders', [
             [
                 'methods'             => 'GET',
-                'callback'            => [ $this, 'get_monthly_revenue' ],
+                'callback'            => [ $this, 'list_merchant_orders' ],
                 'permission_callback' => [ $this, 'merchant_permission_check' ],
             ],
         ] );
 
-        register_rest_route( $this->namespace, '/store/revenue/yearly', [
+        register_rest_route( $this->namespace, '/employee/orders', [
             [
                 'methods'             => 'GET',
-                'callback'            => [ $this, 'get_yearly_revenue' ],
-                'permission_callback' => [ $this, 'merchant_permission_check' ],
+                'callback'            => [ $this, 'list_employee_orders' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
             ],
         ] );
 
-        // Iran provinces and cities endpoints
-        register_rest_route( $this->namespace, '/iran/provinces', [
+        // Online purchase enabled products for employees
+        register_rest_route( $this->namespace, '/employee/products/online', [
             [
                 'methods'             => 'GET',
-                'callback'            => [ $this, 'get_iran_provinces' ],
-                'permission_callback' => '__return_true',
-            ],
-        ] );
-
-        register_rest_route( $this->namespace, '/iran/provinces/(?P<province>[a-zA-Z0-9-]+)/cities', [
-            [
-                'methods'             => 'GET',
-                'callback'            => [ $this, 'get_iran_cities' ],
-                'permission_callback' => '__return_true',
-            ],
-        ] );
-
-        // Global product search
-        register_rest_route( $this->namespace, '/products/search', [
-            [
-                'methods'             => 'GET',
-                'callback'            => [ $this, 'search_products' ],
-                'permission_callback' => [ $this, 'any_authenticated_user_permission_check' ],
+                'callback'            => [ $this, 'get_online_products' ],
+                'permission_callback' => [ $this, 'employee_permission_check' ],
             ],
         ] );
 
@@ -599,6 +686,24 @@ class API_Handler {
                 'callback'            => [ $this, 'get_admin_companies' ],
                 'permission_callback' => [ $this, 'admin_permission_check' ],
             ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'admin_create_company' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/companies/(?P<id>\d+)', [
+            [
+                'methods'             => 'PUT',
+                'callback'            => [ $this, 'admin_update_company' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+            [
+                'methods'             => 'DELETE',
+                'callback'            => [ $this, 'admin_delete_company' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
         ] );
 
         register_rest_route( $this->namespace, '/admin/companies/(?P<id>\d+)/employees', [
@@ -621,6 +726,48 @@ class API_Handler {
             [
                 'methods'             => 'GET',
                 'callback'            => [ $this, 'get_admin_merchants' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/merchants/(?P<id>\d+)', [
+            [
+                'methods'             => 'PUT',
+                'callback'            => [ $this, 'admin_update_merchant' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+            [
+                'methods'             => 'DELETE',
+                'callback'            => [ $this, 'admin_delete_merchant' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/users/(?P<id>\d+)', [
+            [
+                'methods'             => 'DELETE',
+                'callback'            => [ $this, 'admin_delete_user' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/products', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_admin_products' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/products/(?P<id>\d+)', [
+            [
+                'methods'             => 'PUT',
+                'callback'            => [ $this, 'update_product' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+            [
+                'methods'             => 'DELETE',
+                'callback'            => [ $this, 'delete_product' ],
                 'permission_callback' => [ $this, 'admin_permission_check' ],
             ],
         ] );
@@ -659,6 +806,30 @@ class API_Handler {
                 'methods'             => 'GET',
                 'callback'            => [ $this, 'get_admin_stats' ],
                 'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/reports/orders', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_admin_order_reports' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/reports/products', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_admin_product_reports' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/company/reports/employees', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_company_employee_reports' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
             ],
         ] );
     }
@@ -987,6 +1158,358 @@ class API_Handler {
     }
 
     /**
+     * Get list of merchants for employees.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function get_employee_merchants( WP_REST_Request $request ) {
+        $province_id = $request->get_param( 'province_id' );
+        $city_id     = $request->get_param( 'city_id' );
+
+        $args = [ 'role' => 'merchant' ];
+        $merchants = get_users( $args );
+        $result    = [];
+
+        foreach ( $merchants as $merchant ) {
+            $merchant_province_id = (int) get_user_meta( $merchant->ID, '_cwm_province_id', true );
+            $merchant_city_id     = (int) get_user_meta( $merchant->ID, '_cwm_city_id', true );
+
+            // Apply filters
+            if ( $province_id && $merchant_province_id !== (int) $province_id ) {
+                continue;
+            }
+            if ( $city_id && $merchant_city_id !== (int) $city_id ) {
+                continue;
+            }
+
+            $store_name        = get_user_meta( $merchant->ID, '_cwm_store_name', true );
+            $store_address     = get_user_meta( $merchant->ID, '_cwm_store_address', true );
+            $store_description = get_user_meta( $merchant->ID, '_cwm_store_description', true );
+            $store_image       = get_user_meta( $merchant->ID, '_cwm_store_image', true );
+            $phone             = get_user_meta( $merchant->ID, 'cwm_phone', true );
+
+            $result[] = [
+                'id'                => $merchant->ID,
+                'name'              => $merchant->display_name,
+                'store_name'        => $store_name ?: $merchant->display_name,
+                'store_description' => $store_description ?: '',
+                'store_image'       => $store_image ?: '',
+                'store_address'     => $store_address ?: '',
+                'phone'             => $phone ?: '',
+                'email'             => $merchant->user_email,
+                'province_id'       => $merchant_province_id ?: null,
+                'city_id'           => $merchant_city_id ?: null,
+            ];
+        }
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => $result,
+            ]
+        );
+    }
+
+    /**
+     * Get products for a specific merchant.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function get_merchant_products( WP_REST_Request $request ) {
+        $merchant_id = (int) $request->get_param( 'id' );
+
+        if ( ! $merchant_id ) {
+            return new WP_Error( 'cwm_invalid_merchant', __( 'شناسه پذیرنده معتبر نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $products = get_user_meta( $merchant_id, '_cwm_products', true );
+        $products = is_array( $products ) ? $products : [];
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => $products,
+            ]
+        );
+    }
+
+    /**
+     * Get merchant profile.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function get_merchant_profile( WP_REST_Request $request ) {
+        unset( $request );
+
+        $merchant_id = get_current_user_id();
+        $merchant    = get_userdata( $merchant_id );
+
+        if ( ! $merchant ) {
+            return new WP_Error( 'cwm_merchant_not_found', __( 'پذیرنده یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $profile = [
+            'store_name'        => get_user_meta( $merchant_id, '_cwm_store_name', true ),
+            'store_address'     => get_user_meta( $merchant_id, '_cwm_store_address', true ),
+            'store_description' => get_user_meta( $merchant_id, '_cwm_store_description', true ),
+            'store_slogan'      => get_user_meta( $merchant_id, '_cwm_store_slogan', true ),
+            'store_image'       => get_user_meta( $merchant_id, '_cwm_store_image', true ),
+            'store_images'      => get_user_meta( $merchant_id, '_cwm_store_images', true ) ?: [],
+            'phone'             => get_user_meta( $merchant_id, 'cwm_phone', true ),
+            'mobile'            => get_user_meta( $merchant_id, 'mobile', true ),
+            'email'             => $merchant->user_email,
+            'province_id'       => (int) get_user_meta( $merchant_id, '_cwm_province_id', true ) ?: null,
+            'city_id'           => (int) get_user_meta( $merchant_id, '_cwm_city_id', true ) ?: null,
+            'products'          => get_user_meta( $merchant_id, '_cwm_products', true ) ?: [],
+        ];
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => $profile,
+            ]
+        );
+    }
+
+    /**
+     * Update merchant profile.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function update_merchant_profile( WP_REST_Request $request ) {
+        $merchant_id = get_current_user_id();
+
+        $store_name        = $request->get_param( 'store_name' );
+        $store_address     = $request->get_param( 'store_address' );
+        $store_description = $request->get_param( 'store_description' );
+        $store_slogan      = $request->get_param( 'store_slogan' );
+        $phone             = $request->get_param( 'phone' );
+        $mobile            = $request->get_param( 'mobile' );
+        $province_id       = $request->get_param( 'province_id' );
+        $city_id           = $request->get_param( 'city_id' );
+
+        if ( $store_name ) {
+            update_user_meta( $merchant_id, '_cwm_store_name', sanitize_text_field( $store_name ) );
+        }
+        if ( $store_address ) {
+            update_user_meta( $merchant_id, '_cwm_store_address', sanitize_text_field( $store_address ) );
+        }
+        if ( $store_description ) {
+            update_user_meta( $merchant_id, '_cwm_store_description', sanitize_textarea_field( $store_description ) );
+        }
+        if ( $store_slogan ) {
+            update_user_meta( $merchant_id, '_cwm_store_slogan', sanitize_text_field( $store_slogan ) );
+        }
+        if ( $phone ) {
+            update_user_meta( $merchant_id, 'cwm_phone', sanitize_text_field( $phone ) );
+        }
+        if ( $mobile ) {
+            update_user_meta( $merchant_id, 'mobile', sanitize_text_field( $mobile ) );
+        }
+        if ( $province_id ) {
+            update_user_meta( $merchant_id, '_cwm_province_id', (int) $province_id );
+        }
+        if ( $city_id ) {
+            update_user_meta( $merchant_id, '_cwm_city_id', (int) $city_id );
+        }
+
+        // Handle file uploads
+        if ( ! empty( $_FILES['store_image'] ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+
+            $upload = wp_handle_upload( $_FILES['store_image'], [ 'test_form' => false ] );
+            if ( $upload && ! isset( $upload['error'] ) ) {
+                update_user_meta( $merchant_id, '_cwm_store_image', $upload['url'] );
+            }
+        }
+
+        // Handle products
+        $products = $request->get_param( 'products' );
+        if ( is_array( $products ) ) {
+            $sanitized_products = [];
+            foreach ( $products as $product ) {
+                $sanitized_products[] = [
+                    'name'        => sanitize_text_field( $product['name'] ?? '' ),
+                    'description' => sanitize_textarea_field( $product['description'] ?? '' ),
+                    'price'       => isset( $product['price'] ) ? floatval( $product['price'] ) : null,
+                ];
+            }
+            update_user_meta( $merchant_id, '_cwm_products', $sanitized_products );
+        }
+
+        return rest_ensure_response(
+            [
+                'status'  => 'success',
+                'message' => __( 'اطلاعات فروشگاه با موفقیت به‌روزرسانی شد.', 'company-wallet-manager' ),
+            ]
+        );
+    }
+
+    /**
+     * Search all products across all merchants.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function search_all_products( WP_REST_Request $request ) {
+        $search_query = $request->get_param( 'search' );
+
+        if ( empty( $search_query ) ) {
+            return rest_ensure_response(
+                [
+                    'status' => 'success',
+                    'data'   => [],
+                ]
+            );
+        }
+
+        $merchants = get_users( [ 'role' => 'merchant' ] );
+        $results   = [];
+
+        foreach ( $merchants as $merchant ) {
+            $products = get_user_meta( $merchant->ID, '_cwm_products', true );
+            if ( ! is_array( $products ) ) {
+                continue;
+            }
+
+            $store_name = get_user_meta( $merchant->ID, '_cwm_store_name', true ) ?: $merchant->display_name;
+
+            foreach ( $products as $index => $product ) {
+                $product_name = $product['name'] ?? '';
+                if ( stripos( $product_name, $search_query ) !== false ) {
+                    $results[] = [
+                        'id'           => $index,
+                        'name'         => $product_name,
+                        'description'  => $product['description'] ?? '',
+                        'image'        => $product['image'] ?? '',
+                        'price'        => isset( $product['price'] ) ? floatval( $product['price'] ) : null,
+                        'merchant_id'  => $merchant->ID,
+                        'merchant_name' => $merchant->display_name,
+                        'store_name'   => $store_name,
+                    ];
+                }
+            }
+        }
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => $results,
+            ]
+        );
+    }
+
+    /**
+     * Get revenue statistics for merchant.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function get_merchant_revenue_stats( WP_REST_Request $request ) {
+        unset( $request );
+
+        global $wpdb;
+        $merchant_id = get_current_user_id();
+
+        $table = $wpdb->prefix . 'cwm_transactions';
+
+        // Daily revenue (last 30 days)
+        $daily_data = [];
+        for ( $i = 29; $i >= 0; $i-- ) {
+            $date     = date( 'Y-m-d', strtotime( "-{$i} days" ) );
+            $next_date = date( 'Y-m-d', strtotime( "-{$i} days +1 day" ) );
+
+            $amount = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT SUM(amount) FROM {$table} 
+                    WHERE receiver_id = %d 
+                    AND type = 'payment' 
+                    AND status = 'completed'
+                    AND created_at >= %s 
+                    AND created_at < %s",
+                    $merchant_id,
+                    $date,
+                    $next_date
+                )
+            );
+
+            $daily_data[] = [
+                'date'   => $date,
+                'amount' => floatval( $amount ?: 0 ),
+            ];
+        }
+
+        // Monthly revenue (last 12 months)
+        $monthly_data = [];
+        for ( $i = 11; $i >= 0; $i-- ) {
+            $month_start = date( 'Y-m-01', strtotime( "-{$i} months" ) );
+            $month_end   = date( 'Y-m-t', strtotime( "-{$i} months" ) );
+
+            $amount = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT SUM(amount) FROM {$table} 
+                    WHERE receiver_id = %d 
+                    AND type = 'payment' 
+                    AND status = 'completed'
+                    AND created_at >= %s 
+                    AND created_at <= %s",
+                    $merchant_id,
+                    $month_start,
+                    $month_end
+                )
+            );
+
+            $monthly_data[] = [
+                'date'   => date( 'Y-m', strtotime( "-{$i} months" ) ),
+                'amount' => floatval( $amount ?: 0 ),
+            ];
+        }
+
+        // Yearly revenue (last 5 years)
+        $yearly_data = [];
+        for ( $i = 4; $i >= 0; $i-- ) {
+            $year_start = date( 'Y-01-01', strtotime( "-{$i} years" ) );
+            $year_end   = date( 'Y-12-31', strtotime( "-{$i} years" ) );
+
+            $amount = $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT SUM(amount) FROM {$table} 
+                    WHERE receiver_id = %d 
+                    AND type = 'payment' 
+                    AND status = 'completed'
+                    AND created_at >= %s 
+                    AND created_at <= %s",
+                    $merchant_id,
+                    $year_start,
+                    $year_end
+                )
+            );
+
+            $yearly_data[] = [
+                'date'   => date( 'Y', strtotime( "-{$i} years" ) ),
+                'amount' => floatval( $amount ?: 0 ),
+            ];
+        }
+
+        return rest_ensure_response(
+            [
+                'status' => 'success',
+                'data'   => [
+                    'daily'   => $daily_data,
+                    'monthly' => $monthly_data,
+                    'yearly'  => $yearly_data,
+                ],
+            ]
+        );
+    }
+
+    /**
      * Generate a JWT token for the user.
      *
      * @param \WP_REST_Request $request Full details about the request.
@@ -1250,20 +1773,150 @@ class API_Handler {
 
         foreach ( $query->posts as $post ) {
             $rows[] = [
-                'id'           => $post->ID,
-                'title'        => $post->post_title,
-                'status'       => $post->post_status,
-                'company_type' => get_post_meta( $post->ID, '_cwm_company_type', true ),
-                'email'        => get_post_meta( $post->ID, '_cwm_company_email', true ),
-                'phone'        => get_post_meta( $post->ID, '_cwm_company_phone', true ),
-                'user_id'      => get_post_meta( $post->ID, '_cwm_company_user_id', true ),
-                'created_at'   => $post->post_date,
+                'id'             => $post->ID,
+                'title'          => $post->post_title,
+                'status'         => $post->post_status,
+                'company_type'   => get_post_meta( $post->ID, '_cwm_company_type', true ),
+                'email'          => get_post_meta( $post->ID, '_cwm_company_email', true ),
+                'phone'          => get_post_meta( $post->ID, '_cwm_company_phone', true ),
+                'economic_code'  => get_post_meta( $post->ID, '_cwm_company_economic_code', true ),
+                'national_id'    => get_post_meta( $post->ID, '_cwm_company_national_id', true ),
+                'user_id'        => get_post_meta( $post->ID, '_cwm_company_user_id', true ),
+                'created_at'     => $post->post_date,
             ];
         }
 
         wp_reset_postdata();
 
-        return $this->respond_with_format( $request, $rows, [ 'id', 'title', 'status', 'company_type', 'email', 'phone', 'user_id', 'created_at' ], 'companies.csv' );
+        return $this->respond_with_format( $request, $rows, [ 'id', 'title', 'status', 'company_type', 'email', 'phone', 'economic_code', 'national_id', 'user_id', 'created_at' ], 'companies.csv' );
+    }
+
+    /**
+     * Admin endpoint: create a company record manually.
+     */
+    public function admin_create_company( WP_REST_Request $request ) {
+        $payload = $request->get_json_params();
+        $payload = is_array( $payload ) ? $payload : [];
+
+        $status = $request->get_param( 'status' );
+        $result = $this->company_registration->register_from_admin(
+            $payload,
+            [
+                'status' => $status ? sanitize_key( $status ) : 'publish',
+            ]
+        );
+
+        if ( is_wp_error( $result ) ) {
+            return $result;
+        }
+
+        return rest_ensure_response( $result );
+    }
+
+    /**
+     * Admin endpoint: update company details.
+     */
+    public function admin_update_company( WP_REST_Request $request ) {
+        $company_id = (int) $request->get_param( 'id' );
+        $post       = get_post( $company_id );
+
+        if ( ! $post || 'cwm_company' !== $post->post_type ) {
+            return new WP_Error( 'cwm_invalid_company', __( 'شرکت موردنظر یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $post_updates   = [ 'ID' => $company_id ];
+        $should_update  = false;
+        $title          = $request->get_param( 'title' );
+        $status         = $request->get_param( 'status' );
+
+        if ( $title ) {
+            $post_updates['post_title'] = sanitize_text_field( $title );
+            $should_update               = true;
+        }
+
+        if ( $status ) {
+            $post_updates['post_status'] = sanitize_key( $status );
+            $should_update               = true;
+        }
+
+        if ( $should_update ) {
+            wp_update_post( $post_updates );
+        }
+
+        $meta_map = [
+            '_cwm_company_phone'         => 'phone',
+            '_cwm_company_email'         => 'email',
+            '_cwm_company_type'          => 'company_type',
+            '_cwm_company_economic_code' => 'economic_code',
+            '_cwm_company_national_id'   => 'national_id',
+        ];
+
+        foreach ( $meta_map as $meta_key => $param ) {
+            if ( $request->has_param( $param ) ) {
+                update_post_meta( $company_id, $meta_key, sanitize_text_field( $request->get_param( $param ) ) );
+            }
+        }
+
+        $user_id = (int) get_post_meta( $company_id, '_cwm_company_user_id', true );
+
+        if ( $user_id ) {
+            $user_updates  = [ 'ID' => $user_id ];
+            $has_user_data = false;
+
+            if ( $request->has_param( 'email' ) ) {
+                $user_updates['user_email'] = sanitize_email( $request->get_param( 'email' ) );
+                $has_user_data              = true;
+            }
+
+            if ( $request->has_param( 'full_name' ) ) {
+                $name = sanitize_text_field( $request->get_param( 'full_name' ) );
+                $user_updates['display_name'] = $name;
+                $user_updates['first_name']   = $name;
+                $has_user_data                = true;
+                $this->maybe_update_user_name_fields( $user_id, $name );
+            }
+
+            if ( $has_user_data ) {
+                $updated = wp_update_user( $user_updates );
+                if ( is_wp_error( $updated ) ) {
+                    return $updated;
+                }
+            }
+        }
+
+        return rest_ensure_response(
+            [
+                'status'  => 'success',
+                'message' => __( 'اطلاعات شرکت به‌روزرسانی شد.', 'company-wallet-manager' ),
+            ]
+        );
+    }
+
+    /**
+     * Admin endpoint: delete a company and its user.
+     */
+    public function admin_delete_company( WP_REST_Request $request ) {
+        $company_id = (int) $request->get_param( 'id' );
+        $post       = get_post( $company_id );
+
+        if ( ! $post || 'cwm_company' !== $post->post_type ) {
+            return new WP_Error( 'cwm_invalid_company', __( 'شرکت موردنظر یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $user_id = (int) get_post_meta( $company_id, '_cwm_company_user_id', true );
+
+        if ( $user_id ) {
+            wp_delete_user( $user_id );
+        }
+
+        wp_delete_post( $company_id, true );
+
+        return rest_ensure_response(
+            [
+                'status'  => 'success',
+                'message' => __( 'شرکت و کاربر مرتبط حذف شد.', 'company-wallet-manager' ),
+            ]
+        );
     }
 
     /**
@@ -1607,13 +2260,190 @@ class API_Handler {
                 'email'         => $user->user_email,
                 'balance'       => $wallet->get_balance( $user->ID ),
                 'store_name'    => get_user_meta( $user->ID, '_cwm_store_name', true ),
+                'store_address' => get_user_meta( $user->ID, '_cwm_store_address', true ),
+                'phone'         => get_user_meta( $user->ID, 'cwm_phone', true ),
+                'mobile'        => get_user_meta( $user->ID, 'cwm_mobile', true ),
                 'pending_payouts' => $this->get_pending_payout_total( $user->ID ),
                 'categories'    => $categories,
                 'category_ids'  => array_map( 'intval', wp_list_pluck( $categories, 'id' ) ),
             ];
         }
 
-        return $this->respond_with_format( $request, $rows, [ 'id', 'name', 'email', 'balance', 'store_name', 'pending_payouts' ], 'merchants.csv' );
+        return $this->respond_with_format( $request, $rows, [ 'id', 'name', 'email', 'balance', 'store_name', 'store_address', 'phone', 'mobile', 'pending_payouts' ], 'merchants.csv' );
+    }
+
+    /**
+     * Admin endpoint: list products across all merchants.
+     */
+    public function get_admin_products( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $users_table    = $wpdb->users;
+
+        $conditions = [];
+        $params     = [];
+
+        $search = $request->get_param( 'search' );
+        if ( $search ) {
+            $like         = '%' . $wpdb->esc_like( $search ) . '%';
+            $conditions[] = '(p.name LIKE %s OR u.display_name LIKE %s)';
+            $params[]     = $like;
+            $params[]     = $like;
+        }
+
+        $where = '';
+        if ( ! empty( $conditions ) ) {
+            $where = 'WHERE ' . implode( ' AND ', $conditions );
+        }
+
+        $limit = absint( $request->get_param( 'limit' ) );
+        if ( $limit <= 0 || $limit > 1000 ) {
+            $limit = 500;
+        }
+
+        $params[] = $limit;
+
+        $sql = "SELECT p.*, u.display_name as merchant_name, u.user_email as merchant_email
+                FROM {$products_table} p
+                LEFT JOIN {$users_table} u ON p.merchant_id = u.ID
+                {$where}
+                ORDER BY p.created_at DESC
+                LIMIT %d";
+
+        $rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+
+        $formatted = array_map(
+            static function ( $row ) {
+                return [
+                    'id'                      => (int) $row['id'],
+                    'name'                    => $row['name'],
+                    'price'                   => isset( $row['price'] ) ? (float) $row['price'] : 0,
+                    'stock_quantity'          => isset( $row['stock_quantity'] ) ? (int) $row['stock_quantity'] : 0,
+                    'status'                  => $row['status'],
+                    'merchant_id'             => (int) $row['merchant_id'],
+                    'merchant_name'           => $row['merchant_name'],
+                    'merchant_email'          => $row['merchant_email'],
+                    'online_purchase_enabled' => (bool) $row['online_purchase_enabled'],
+                    'product_category_id'     => isset( $row['product_category_id'] ) ? (int) $row['product_category_id'] : null,
+                    'image'                   => $row['image'],
+                    'created_at'              => $row['created_at'],
+                ];
+            },
+            $rows ?: []
+        );
+
+        return $this->respond_with_format(
+            $request,
+            $formatted,
+            [ 'id', 'name', 'price', 'stock_quantity', 'status', 'merchant_id', 'merchant_name', 'merchant_email', 'online_purchase_enabled' ],
+            'products.csv'
+        );
+    }
+
+    /**
+     * Admin endpoint: update merchant profile information.
+     */
+    public function admin_update_merchant( WP_REST_Request $request ) {
+        $merchant_id = (int) $request->get_param( 'id' );
+        $user        = get_user_by( 'id', $merchant_id );
+
+        if ( ! $user || ! in_array( 'merchant', (array) $user->roles, true ) ) {
+            return new WP_Error( 'cwm_invalid_merchant', __( 'پذیرنده یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $updates     = [ 'ID' => $merchant_id ];
+        $has_updates = false;
+
+        if ( $request->has_param( 'full_name' ) ) {
+            $name                      = sanitize_text_field( $request->get_param( 'full_name' ) );
+            $updates['display_name']   = $name;
+            $updates['first_name']     = $name;
+            $has_updates               = true;
+            $this->maybe_update_user_name_fields( $merchant_id, $name );
+        }
+
+        if ( $request->has_param( 'email' ) ) {
+            $updates['user_email'] = sanitize_email( $request->get_param( 'email' ) );
+            $has_updates           = true;
+        }
+
+        if ( $has_updates ) {
+            $result = wp_update_user( $updates );
+            if ( is_wp_error( $result ) ) {
+                return $result;
+            }
+        }
+
+        $meta_map = [
+            '_cwm_store_name'    => 'store_name',
+            '_cwm_store_address' => 'store_address',
+            '_cwm_store_description' => 'store_description',
+            'cwm_phone'          => 'phone',
+            'cwm_mobile'         => 'mobile',
+        ];
+
+        foreach ( $meta_map as $meta_key => $param ) {
+            if ( $request->has_param( $param ) ) {
+                $value = sanitize_text_field( $request->get_param( $param ) );
+                update_user_meta( $merchant_id, $meta_key, $value );
+            }
+        }
+
+        return rest_ensure_response(
+            [
+                'status'  => 'success',
+                'message' => __( 'اطلاعات پذیرنده به‌روزرسانی شد.', 'company-wallet-manager' ),
+            ]
+        );
+    }
+
+    /**
+     * Admin endpoint: delete a merchant account.
+     */
+    public function admin_delete_merchant( WP_REST_Request $request ) {
+        $merchant_id = (int) $request->get_param( 'id' );
+        $user        = get_user_by( 'id', $merchant_id );
+
+        if ( ! $user || ! in_array( 'merchant', (array) $user->roles, true ) ) {
+            return new WP_Error( 'cwm_invalid_merchant', __( 'پذیرنده یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        wp_delete_user( $merchant_id );
+
+        return rest_ensure_response(
+            [
+                'status'  => 'success',
+                'message' => __( 'پذیرنده حذف شد.', 'company-wallet-manager' ),
+            ]
+        );
+    }
+
+    /**
+     * Admin endpoint: delete any user account.
+     */
+    public function admin_delete_user( WP_REST_Request $request ) {
+        $user_id    = (int) $request->get_param( 'id' );
+        $current_id = get_current_user_id();
+
+        if ( $user_id === $current_id ) {
+            return new WP_Error( 'cwm_forbidden', __( 'امکان حذف حساب کاربری خودتان وجود ندارد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $user = get_user_by( 'id', $user_id );
+
+        if ( ! $user ) {
+            return new WP_Error( 'cwm_invalid_user', __( 'کاربر یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        wp_delete_user( $user_id );
+
+        return rest_ensure_response(
+            [
+                'status'  => 'success',
+                'message' => __( 'کاربر حذف شد.', 'company-wallet-manager' ),
+            ]
+        );
     }
 
     /**
@@ -2568,56 +3398,18 @@ class API_Handler {
             return new \WP_Error( 'jwt_auth_bad_auth_header', 'Authorization header malformed.', array( 'status' => 403 ) );
         }
 
-        // First, try to use jwt-auth plugin's validation
-        // jwt-auth plugin hooks into 'determine_current_user' filter
-        // We need to manually trigger it by checking if user is already set
-        $current_user_id = wp_get_current_user()->ID;
-        if ( $current_user_id > 0 ) {
-            // User is already authenticated (likely by jwt-auth plugin)
-            return true;
-        }
-
-        // Try to decode token manually
-        // Check if JWT_AUTH_SECRET_KEY is defined
+        // Ensure the secret key is defined in wp-config.php.
         if ( ! defined( 'JWT_AUTH_SECRET_KEY' ) ) {
-            // Try to get secret from jwt-auth plugin's option
-            $jwt_secret = get_option( 'jwt_auth_secret_key' );
-            if ( ! $jwt_secret ) {
-                return new \WP_Error( 'jwt_auth_secret_not_defined', 'JWT secret key is not defined.', array( 'status' => 500 ) );
-            }
-        } else {
-            $jwt_secret = JWT_AUTH_SECRET_KEY;
+            return new \WP_Error( 'jwt_auth_secret_not_defined', 'JWT secret key is not defined in wp-config.php.', array( 'status' => 500 ) );
         }
 
         try {
-            $decoded = \Firebase\JWT\JWT::decode( $token, new \Firebase\JWT\Key( $jwt_secret, 'HS256' ) );
-            
-            // Extract user ID from different possible token structures
-            $user_id = null;
-            if ( isset( $decoded->data->user->id ) ) {
-                $user_id = (int) $decoded->data->user->id;
-            } elseif ( isset( $decoded->data->user_id ) ) {
-                $user_id = (int) $decoded->data->user_id;
-            } elseif ( isset( $decoded->user_id ) ) {
-                $user_id = (int) $decoded->user_id;
-            } elseif ( isset( $decoded->id ) ) {
-                $user_id = (int) $decoded->id;
-            }
-            
-            if ( $user_id && $user_id > 0 ) {
-                // Verify user exists
-                $user = get_userdata( $user_id );
-                if ( $user ) {
-                    wp_set_current_user( $user_id );
-                    return true;
-                }
-            }
+            $decoded = \Firebase\JWT\JWT::decode( $token, new \Firebase\JWT\Key( JWT_AUTH_SECRET_KEY, 'HS256' ) );
+            wp_set_current_user( $decoded->data->user->id );
+            return true;
         } catch ( \Exception $e ) {
-            $this->debug_log( 'JWT decode failed', array( 'error' => $e->getMessage() ) );
+            return new \WP_Error( 'jwt_auth_invalid_token', $e->getMessage(), array( 'status' => 403 ) );
         }
-
-        // If all methods fail, return error
-        return new \WP_Error( 'jwt_auth_invalid_token', 'Invalid or expired token. Please login again.', array( 'status' => 403 ) );
     }
 
 
@@ -2788,7 +3580,9 @@ class API_Handler {
             return false;
         }
 
-        return $this->user_has_role( wp_get_current_user(), 'merchant' );
+        $user = wp_get_current_user();
+
+        return $this->user_has_role( $user, 'merchant' ) || $this->user_has_role( $user, 'administrator' ) || user_can( $user, 'manage_wallets' );
     }
 
     /**
@@ -2869,698 +3663,6 @@ class API_Handler {
     }
 
     /**
-     * Get store information for the current merchant.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
-     */
-    public function get_store_info( WP_REST_Request $request ) {
-        $user = wp_get_current_user();
-        $merchant_id = $user->ID;
-
-        // Find or create store post for this merchant
-        $store_query = new WP_Query( [
-            'post_type'      => 'cwm_store',
-            'post_status'    => 'any',
-            'posts_per_page' => 1,
-            'meta_query'     => [
-                [
-                    'key'   => 'merchant_id',
-                    'value' => $merchant_id,
-                ],
-            ],
-        ] );
-
-        if ( $store_query->have_posts() ) {
-            $store = $store_query->posts[0];
-            $store_id = $store->ID;
-        } else {
-            // Create new store post
-            $store_id = wp_insert_post( [
-                'post_type'   => 'cwm_store',
-                'post_status' => 'publish',
-                'post_title'  => get_user_meta( $merchant_id, 'store_name', true ) ?: 'فروشگاه من',
-            ] );
-            update_post_meta( $store_id, 'merchant_id', $merchant_id );
-        }
-
-        $store_image = get_post_meta( $store_id, 'store_image', true );
-        $store_images = get_post_meta( $store_id, 'store_images', true ) ?: [];
-        $store_name = get_post_meta( $store_id, 'store_name', true ) ?: get_the_title( $store_id );
-        $store_address = get_post_meta( $store_id, 'store_address', true );
-        $store_phone = get_post_meta( $store_id, 'store_phone', true );
-        $store_slogan = get_post_meta( $store_id, 'store_slogan', true );
-        $store_province = get_post_meta( $store_id, 'store_province', true );
-        $store_city = get_post_meta( $store_id, 'store_city', true );
-        $store_description = get_post_field( 'post_content', $store_id ) ?: get_post_meta( $store_id, 'store_description', true );
-
-        // Get products
-        $products_query = new WP_Query( [
-            'post_type'      => 'cwm_product',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'meta_query'     => [
-                [
-                    'key'   => 'store_id',
-                    'value' => $store_id,
-                ],
-            ],
-        ] );
-
-        $products = [];
-        if ( $products_query->have_posts() ) {
-            foreach ( $products_query->posts as $product ) {
-                $products[] = [
-                    'id'          => $product->ID,
-                    'name'        => $product->post_title,
-                    'description' => $product->post_content,
-                    'image'       => get_the_post_thumbnail_url( $product->ID, 'medium' ) ?: '',
-                ];
-            }
-        }
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => [
-                'store_id'         => $store_id,
-                'store_image'      => $store_image,
-                'store_images'     => is_array( $store_images ) ? $store_images : [],
-                'store_name'       => $store_name,
-                'store_address'    => $store_address,
-                'store_phone'      => $store_phone,
-                'store_slogan'     => $store_slogan,
-                'store_province'   => $store_province,
-                'store_city'       => $store_city,
-                'store_description' => $store_description,
-                'products'         => $products,
-            ],
-        ] );
-    }
-
-    /**
-     * Update store information for the current merchant.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
-     */
-    public function update_store_info( WP_REST_Request $request ) {
-        $user = wp_get_current_user();
-        $merchant_id = $user->ID;
-
-        // Find or create store post
-        $store_query = new WP_Query( [
-            'post_type'      => 'cwm_store',
-            'post_status'    => 'any',
-            'posts_per_page' => 1,
-            'meta_query'     => [
-                [
-                    'key'   => 'merchant_id',
-                    'value' => $merchant_id,
-                ],
-            ],
-        ] );
-
-        if ( $store_query->have_posts() ) {
-            $store_id = $store_query->posts[0]->ID;
-        } else {
-            $store_id = wp_insert_post( [
-                'post_type'   => 'cwm_store',
-                'post_status' => 'publish',
-                'post_title'  => $request->get_param( 'store_name' ) ?: 'فروشگاه من',
-            ] );
-            update_post_meta( $store_id, 'merchant_id', $merchant_id );
-        }
-
-        // Update store fields
-        $store_name = $request->get_param( 'store_name' );
-        if ( $store_name ) {
-            wp_update_post( [
-                'ID'         => $store_id,
-                'post_title'  => sanitize_text_field( $store_name ),
-            ] );
-            update_post_meta( $store_id, 'store_name', sanitize_text_field( $store_name ) );
-        }
-
-        $store_image = $request->get_param( 'store_image' );
-        if ( $store_image !== null ) {
-            update_post_meta( $store_id, 'store_image', esc_url_raw( $store_image ) );
-        }
-
-        $store_images = $request->get_param( 'store_images' );
-        if ( is_array( $store_images ) ) {
-            $sanitized_images = array_map( 'esc_url_raw', $store_images );
-            update_post_meta( $store_id, 'store_images', $sanitized_images );
-        }
-
-        $store_address = $request->get_param( 'store_address' );
-        if ( $store_address !== null ) {
-            update_post_meta( $store_id, 'store_address', sanitize_text_field( $store_address ) );
-        }
-
-        $store_phone = $request->get_param( 'store_phone' );
-        if ( $store_phone !== null ) {
-            update_post_meta( $store_id, 'store_phone', sanitize_text_field( $store_phone ) );
-        }
-
-        $store_slogan = $request->get_param( 'store_slogan' );
-        if ( $store_slogan !== null ) {
-            update_post_meta( $store_id, 'store_slogan', sanitize_text_field( $store_slogan ) );
-        }
-
-        $store_description = $request->get_param( 'store_description' );
-        if ( $store_description !== null ) {
-            wp_update_post( [
-                'ID'           => $store_id,
-                'post_content' => wp_kses_post( $store_description ),
-            ] );
-            update_post_meta( $store_id, 'store_description', wp_kses_post( $store_description ) );
-        }
-
-        $store_province = $request->get_param( 'store_province' );
-        if ( $store_province !== null ) {
-            update_post_meta( $store_id, 'store_province', sanitize_text_field( $store_province ) );
-        }
-
-        $store_city = $request->get_param( 'store_city' );
-        if ( $store_city !== null ) {
-            update_post_meta( $store_id, 'store_city', sanitize_text_field( $store_city ) );
-        }
-
-        // Update products
-        $products = $request->get_param( 'products' );
-        if ( is_array( $products ) ) {
-            // Delete existing products
-            $existing_products = new WP_Query( [
-                'post_type'      => 'cwm_product',
-                'post_status'    => 'any',
-                'posts_per_page' => -1,
-                'meta_query'     => [
-                    [
-                        'key'   => 'store_id',
-                        'value' => $store_id,
-                    ],
-                ],
-            ] );
-
-            if ( $existing_products->have_posts() ) {
-                foreach ( $existing_products->posts as $product ) {
-                    wp_delete_post( $product->ID, true );
-                }
-            }
-
-            // Create new products
-            foreach ( $products as $product_data ) {
-                if ( ! empty( $product_data['name'] ) ) {
-                    $product_id = wp_insert_post( [
-                        'post_type'    => 'cwm_product',
-                        'post_status'  => 'publish',
-                        'post_title'   => sanitize_text_field( $product_data['name'] ),
-                        'post_content' => isset( $product_data['description'] ) ? wp_kses_post( $product_data['description'] ) : '',
-                    ] );
-                    update_post_meta( $product_id, 'store_id', $store_id );
-                    if ( ! empty( $product_data['image'] ) ) {
-                        set_post_thumbnail( $product_id, attachment_url_to_postid( esc_url_raw( $product_data['image'] ) ) );
-                    }
-                }
-            }
-        }
-
-        return $this->get_store_info( $request );
-    }
-
-    /**
-     * Get list of all stores.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
-     */
-    public function get_stores_list( WP_REST_Request $request ) {
-        $province = sanitize_text_field( $request->get_param( 'province' ) );
-        $city = sanitize_text_field( $request->get_param( 'city' ) );
-
-        $query_args = [
-            'post_type'      => 'cwm_store',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'orderby'        => 'title',
-            'order'          => 'ASC',
-        ];
-
-        if ( $province || $city ) {
-            $query_args['meta_query'] = [];
-            if ( $province ) {
-                $query_args['meta_query'][] = [
-                    'key'   => 'store_province',
-                    'value' => $province,
-                ];
-            }
-            if ( $city ) {
-                $query_args['meta_query'][] = [
-                    'key'   => 'store_city',
-                    'value' => $city,
-                ];
-            }
-        }
-
-        $stores_query = new WP_Query( $query_args );
-
-        $stores = [];
-        if ( $stores_query->have_posts() ) {
-            foreach ( $stores_query->posts as $store ) {
-                $store_id = $store->ID;
-                $store_image = get_post_meta( $store_id, 'store_image', true );
-                $store_name = get_post_meta( $store_id, 'store_name', true ) ?: $store->post_title;
-                $store_province = get_post_meta( $store_id, 'store_province', true );
-                $store_city = get_post_meta( $store_id, 'store_city', true );
-                $store_description = wp_trim_words( get_post_field( 'post_content', $store_id ) ?: get_post_meta( $store_id, 'store_description', true ), 20 );
-
-                $stores[] = [
-                    'id'          => $store_id,
-                    'name'        => $store_name,
-                    'image'       => $store_image ?: get_the_post_thumbnail_url( $store_id, 'medium' ) ?: '',
-                    'description' => $store_description,
-                    'province'     => $store_province,
-                    'city'         => $store_city,
-                ];
-            }
-        }
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => $stores,
-        ] );
-    }
-
-    /**
-     * Get store details by ID.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
-     */
-    public function get_store_details( WP_REST_Request $request ) {
-        $store_id = absint( $request->get_param( 'id' ) );
-        $store = get_post( $store_id );
-
-        if ( ! $store || $store->post_type !== 'cwm_store' || $store->post_status !== 'publish' ) {
-            return new WP_Error( 'cwm_store_not_found', __( 'Store not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
-        }
-
-        $store_image = get_post_meta( $store_id, 'store_image', true );
-        $store_name = get_post_meta( $store_id, 'store_name', true ) ?: $store->post_title;
-        $store_address = get_post_meta( $store_id, 'store_address', true );
-        $store_phone = get_post_meta( $store_id, 'store_phone', true );
-        $store_description = get_post_field( 'post_content', $store_id ) ?: get_post_meta( $store_id, 'store_description', true );
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => [
-                'id'          => $store_id,
-                'name'        => $store_name,
-                'image'       => $store_image ?: get_the_post_thumbnail_url( $store_id, 'large' ) ?: '',
-                'description' => $store_description,
-                'address'     => $store_address,
-                'phone'       => $store_phone,
-            ],
-        ] );
-    }
-
-    /**
-     * Get products for a specific store.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
-     */
-    public function get_store_products( WP_REST_Request $request ) {
-        $store_id = absint( $request->get_param( 'id' ) );
-        $store = get_post( $store_id );
-
-        if ( ! $store || $store->post_type !== 'cwm_store' ) {
-            return new WP_Error( 'cwm_store_not_found', __( 'Store not found.', 'company-wallet-manager' ), [ 'status' => 404 ] );
-        }
-
-        $search = $request->get_param( 'search' );
-        $products_query_args = [
-            'post_type'      => 'cwm_product',
-            'post_status'    => 'publish',
-            'posts_per_page' => -1,
-            'meta_query'     => [
-                [
-                    'key'   => 'store_id',
-                    'value' => $store_id,
-                ],
-            ],
-        ];
-
-        if ( $search ) {
-            $products_query_args['s'] = sanitize_text_field( $search );
-        }
-
-        $products_query = new WP_Query( $products_query_args );
-
-        $products = [];
-        if ( $products_query->have_posts() ) {
-            foreach ( $products_query->posts as $product ) {
-                $products[] = [
-                    'id'          => $product->ID,
-                    'name'        => $product->post_title,
-                    'description' => $product->post_content,
-                    'image'       => get_the_post_thumbnail_url( $product->ID, 'medium' ) ?: '',
-                ];
-            }
-        }
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => $products,
-        ] );
-    }
-
-    /**
-     * Get daily revenue statistics for the current merchant.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
-     */
-    public function get_daily_revenue( WP_REST_Request $request ) {
-        global $wpdb;
-        $user = wp_get_current_user();
-        $merchant_id = $user->ID;
-        $days = absint( $request->get_param( 'days' ) ) ?: 30;
-
-        $table = $wpdb->prefix . 'cwm_transactions';
-        $sql = $wpdb->prepare(
-            "SELECT DATE(created_at) as date, SUM(amount) as revenue
-            FROM $table
-            WHERE receiver_id = %d
-            AND type = 'payment'
-            AND status = 'completed'
-            AND created_at >= DATE_SUB(NOW(), INTERVAL %d DAY)
-            GROUP BY DATE(created_at)
-            ORDER BY date ASC",
-            $merchant_id,
-            $days
-        );
-
-        $results = $wpdb->get_results( $sql, ARRAY_A );
-        $data = [];
-        foreach ( $results as $row ) {
-            $data[] = [
-                'date'    => $row['date'],
-                'revenue' => floatval( $row['revenue'] ),
-            ];
-        }
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => $data,
-        ] );
-    }
-
-    /**
-     * Get monthly revenue statistics for the current merchant.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
-     */
-    public function get_monthly_revenue( WP_REST_Request $request ) {
-        global $wpdb;
-        $user = wp_get_current_user();
-        $merchant_id = $user->ID;
-        $months = absint( $request->get_param( 'months' ) ) ?: 12;
-
-        $table = $wpdb->prefix . 'cwm_transactions';
-        $sql = $wpdb->prepare(
-            "SELECT DATE_FORMAT(created_at, '%%Y-%%m') as month, SUM(amount) as revenue
-            FROM $table
-            WHERE receiver_id = %d
-            AND type = 'payment'
-            AND status = 'completed'
-            AND created_at >= DATE_SUB(NOW(), INTERVAL %d MONTH)
-            GROUP BY DATE_FORMAT(created_at, '%%Y-%%m')
-            ORDER BY month ASC",
-            $merchant_id,
-            $months
-        );
-
-        $results = $wpdb->get_results( $sql, ARRAY_A );
-        $data = [];
-        foreach ( $results as $row ) {
-            $data[] = [
-                'month'   => $row['month'],
-                'revenue' => floatval( $row['revenue'] ),
-            ];
-        }
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => $data,
-        ] );
-    }
-
-    /**
-     * Get yearly revenue statistics for the current merchant.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response|\WP_Error Response object on success, or WP_Error on failure.
-     */
-    public function get_yearly_revenue( WP_REST_Request $request ) {
-        global $wpdb;
-        $user = wp_get_current_user();
-        $merchant_id = $user->ID;
-        $years = absint( $request->get_param( 'years' ) ) ?: 5;
-
-        $table = $wpdb->prefix . 'cwm_transactions';
-        $sql = $wpdb->prepare(
-            "SELECT YEAR(created_at) as year, SUM(amount) as revenue
-            FROM $table
-            WHERE receiver_id = %d
-            AND type = 'payment'
-            AND status = 'completed'
-            AND created_at >= DATE_SUB(NOW(), INTERVAL %d YEAR)
-            GROUP BY YEAR(created_at)
-            ORDER BY year ASC",
-            $merchant_id,
-            $years
-        );
-
-        $results = $wpdb->get_results( $sql, ARRAY_A );
-        $data = [];
-        foreach ( $results as $row ) {
-            $data[] = [
-                'year'    => intval( $row['year'] ),
-                'revenue' => floatval( $row['revenue'] ),
-            ];
-        }
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => $data,
-        ] );
-    }
-
-    /**
-     * Get list of Iran provinces.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response Response object.
-     */
-    public function get_iran_provinces( WP_REST_Request $request ) {
-        $provinces = [
-            [ 'id' => 'tehran', 'name' => 'تهران' ],
-            [ 'id' => 'isfahan', 'name' => 'اصفهان' ],
-            [ 'id' => 'fars', 'name' => 'فارس' ],
-            [ 'id' => 'khuzestan', 'name' => 'خوزستان' ],
-            [ 'id' => 'razavi-khorasan', 'name' => 'خراسان رضوی' ],
-            [ 'id' => 'east-azerbaijan', 'name' => 'آذربایجان شرقی' ],
-            [ 'id' => 'mazandaran', 'name' => 'مازندران' ],
-            [ 'id' => 'alborz', 'name' => 'البرز' ],
-            [ 'id' => 'shiraz', 'name' => 'شیراز' ],
-            [ 'id' => 'qom', 'name' => 'قم' ],
-            [ 'id' => 'gilan', 'name' => 'گیلان' ],
-            [ 'id' => 'golestan', 'name' => 'گلستان' ],
-            [ 'id' => 'kerman', 'name' => 'کرمان' ],
-            [ 'id' => 'kermanshah', 'name' => 'کرمانشاه' ],
-            [ 'id' => 'yazd', 'name' => 'یزد' ],
-            [ 'id' => 'ardabil', 'name' => 'اردبیل' ],
-            [ 'id' => 'bushehr', 'name' => 'بوشهر' ],
-            [ 'id' => 'chaharmahal-bakhtiari', 'name' => 'چهارمحال و بختیاری' ],
-            [ 'id' => 'south-khorasan', 'name' => 'خراسان جنوبی' ],
-            [ 'id' => 'north-khorasan', 'name' => 'خراسان شمالی' ],
-            [ 'id' => 'kohgiluyeh-boyer-ahmad', 'name' => 'کهگیلویه و بویراحمد' ],
-            [ 'id' => 'kurdistan', 'name' => 'کردستان' ],
-            [ 'id' => 'lorestan', 'name' => 'لرستان' ],
-            [ 'id' => 'markazi', 'name' => 'مرکزی' ],
-            [ 'id' => 'hormozgan', 'name' => 'هرمزگان' ],
-            [ 'id' => 'hamadan', 'name' => 'همدان' ],
-            [ 'id' => 'zanjan', 'name' => 'زنجان' ],
-            [ 'id' => 'semnan', 'name' => 'سمنان' ],
-            [ 'id' => 'sistan-baluchestan', 'name' => 'سیستان و بلوچستان' ],
-            [ 'id' => 'west-azerbaijan', 'name' => 'آذربایجان غربی' ],
-            [ 'id' => 'qazvin', 'name' => 'قزوین' ],
-        ];
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => $provinces,
-        ] );
-    }
-
-    /**
-     * Get cities for a specific province.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response Response object.
-     */
-    public function get_iran_cities( WP_REST_Request $request ) {
-        $province = sanitize_text_field( $request->get_param( 'province' ) );
-        
-        $cities_map = [
-            'tehran' => [
-                [ 'id' => 'tehran', 'name' => 'تهران' ],
-                [ 'id' => 'karaj', 'name' => 'کرج' ],
-                [ 'id' => 'eslamshahr', 'name' => 'اسلامشهر' ],
-                [ 'id' => 'rey', 'name' => 'ری' ],
-                [ 'id' => 'varamin', 'name' => 'ورامین' ],
-            ],
-            'isfahan' => [
-                [ 'id' => 'isfahan', 'name' => 'اصفهان' ],
-                [ 'id' => 'kashan', 'name' => 'کاشان' ],
-                [ 'id' => 'najafabad', 'name' => 'نجف‌آباد' ],
-                [ 'id' => 'shahinshahr', 'name' => 'شاهین‌شهر' ],
-            ],
-            'fars' => [
-                [ 'id' => 'shiraz', 'name' => 'شیراز' ],
-                [ 'id' => 'marvdasht', 'name' => 'مرودشت' ],
-                [ 'id' => 'jahrom', 'name' => 'جهرم' ],
-            ],
-            'khuzestan' => [
-                [ 'id' => 'ahvaz', 'name' => 'اهواز' ],
-                [ 'id' => 'abadan', 'name' => 'آبادان' ],
-                [ 'id' => 'khorramshahr', 'name' => 'خرمشهر' ],
-            ],
-            'razavi-khorasan' => [
-                [ 'id' => 'mashhad', 'name' => 'مشهد' ],
-                [ 'id' => 'sabzevar', 'name' => 'سبزوار' ],
-                [ 'id' => 'neishabur', 'name' => 'نیشابور' ],
-            ],
-            'east-azerbaijan' => [
-                [ 'id' => 'tabriz', 'name' => 'تبریز' ],
-                [ 'id' => 'maragheh', 'name' => 'مراغه' ],
-            ],
-            'mazandaran' => [
-                [ 'id' => 'sari', 'name' => 'ساری' ],
-                [ 'id' => 'babol', 'name' => 'بابل' ],
-                [ 'id' => 'amol', 'name' => 'آمل' ],
-            ],
-            'alborz' => [
-                [ 'id' => 'karaj', 'name' => 'کرج' ],
-                [ 'id' => 'savojbolagh', 'name' => 'ساوجبلاغ' ],
-            ],
-        ];
-
-        $cities = isset( $cities_map[ $province ] ) ? $cities_map[ $province ] : [];
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => $cities,
-        ] );
-    }
-
-    /**
-     * Search products across all stores.
-     *
-     * @param \WP_REST_Request $request Full details about the request.
-     * @return \WP_REST_Response Response object.
-     */
-    public function search_products( WP_REST_Request $request ) {
-        $search = sanitize_text_field( $request->get_param( 'q' ) );
-        $province = sanitize_text_field( $request->get_param( 'province' ) );
-        $city = sanitize_text_field( $request->get_param( 'city' ) );
-
-        if ( ! $search ) {
-            return rest_ensure_response( [
-                'status' => 'success',
-                'data'   => [],
-            ] );
-        }
-
-        $products_query_args = [
-            'post_type'      => 'cwm_product',
-            'post_status'    => 'publish',
-            'posts_per_page' => 50,
-            's'              => $search,
-        ];
-
-        // Filter by province and city if provided
-        if ( $province || $city ) {
-            $store_meta_query = [];
-            if ( $province ) {
-                $store_meta_query[] = [
-                    'key'   => 'store_province',
-                    'value' => $province,
-                ];
-            }
-            if ( $city ) {
-                $store_meta_query[] = [
-                    'key'   => 'store_city',
-                    'value' => $city,
-                ];
-            }
-
-            // Get store IDs matching province/city
-            $store_query = new WP_Query( [
-                'post_type'      => 'cwm_store',
-                'post_status'    => 'publish',
-                'posts_per_page' => -1,
-                'fields'         => 'ids',
-                'meta_query'     => $store_meta_query,
-            ] );
-
-            $store_ids = $store_query->posts;
-            if ( ! empty( $store_ids ) ) {
-                $products_query_args['meta_query'] = [
-                    [
-                        'key'     => 'store_id',
-                        'value'   => $store_ids,
-                        'compare' => 'IN',
-                    ],
-                ];
-            } else {
-                // No stores match, return empty
-                return rest_ensure_response( [
-                    'status' => 'success',
-                    'data'   => [],
-                ] );
-            }
-        }
-
-        $products_query = new WP_Query( $products_query_args );
-
-        $products = [];
-        if ( $products_query->have_posts() ) {
-            foreach ( $products_query->posts as $product ) {
-                $store_id = get_post_meta( $product->ID, 'store_id', true );
-                $store = get_post( $store_id );
-                $store_name = get_post_meta( $store_id, 'store_name', true ) ?: ( $store ? $store->post_title : '' );
-
-                $products[] = [
-                    'id'          => $product->ID,
-                    'name'        => $product->post_title,
-                    'description' => $product->post_content,
-                    'image'       => get_the_post_thumbnail_url( $product->ID, 'medium' ) ?: '',
-                    'store_id'    => $store_id,
-                    'store_name'  => $store_name,
-                ];
-            }
-        }
-
-        return rest_ensure_response( [
-            'status' => 'success',
-            'data'   => $products,
-        ] );
-    }
-
-    /**
      * Write debug information to the error log when WP_DEBUG is enabled.
      */
     protected function debug_log( $message, array $context = [] ) {
@@ -3571,5 +3673,1455 @@ class API_Handler {
 
             error_log( '[CWM] ' . $message );
         }
+    }
+
+    // ==================== Product Categories Methods ====================
+
+    /**
+     * List all product categories (shared across all merchants).
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function list_product_categories( WP_REST_Request $request ) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cwm_product_categories';
+
+        $categories = $wpdb->get_results(
+            "SELECT id, name, slug, description, created_at, updated_at FROM {$table} ORDER BY name ASC",
+            ARRAY_A
+        );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => array_map( function( $cat ) {
+                return [
+                    'id'          => (int) $cat['id'],
+                    'name'        => $cat['name'],
+                    'slug'        => $cat['slug'],
+                    'description' => $cat['description'] ?? '',
+                ];
+            }, $categories ?: [] ),
+        ] );
+    }
+
+    /**
+     * Create a new product category.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function create_product_category( WP_REST_Request $request ) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cwm_product_categories';
+
+        $name        = sanitize_text_field( $request->get_param( 'name' ) );
+        $description = sanitize_textarea_field( $request->get_param( 'description' ) ?? '' );
+        $slug        = sanitize_title( $name );
+
+        if ( empty( $name ) ) {
+            return new WP_Error( 'cwm_invalid_name', __( 'نام دسته‌بندی الزامی است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        // Check if slug exists
+        $existing = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$table} WHERE slug = %s", $slug ) );
+        if ( $existing ) {
+            $slug = $slug . '-' . time();
+        }
+
+        $result = $wpdb->insert(
+            $table,
+            [
+                'name'        => $name,
+                'slug'        => $slug,
+                'description' => $description,
+            ],
+            [ '%s', '%s', '%s' ]
+        );
+
+        if ( false === $result ) {
+            return new WP_Error( 'cwm_db_error', __( 'خطا در ایجاد دسته‌بندی.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+        }
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'دسته‌بندی با موفقیت ایجاد شد.', 'company-wallet-manager' ),
+            'data'    => [
+                'id'          => $wpdb->insert_id,
+                'name'        => $name,
+                'slug'        => $slug,
+                'description' => $description,
+            ],
+        ] );
+    }
+
+    // ==================== Products Methods ====================
+
+    /**
+     * List products for current merchant.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function list_merchant_products( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $categories_table = $wpdb->prefix . 'cwm_product_categories';
+
+        $products = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT p.*, pc.name as category_name, pc.slug as category_slug 
+                FROM {$products_table} p 
+                LEFT JOIN {$categories_table} pc ON p.product_category_id = pc.id 
+                WHERE p.merchant_id = %d 
+                ORDER BY p.created_at DESC",
+                $user_id
+            ),
+            ARRAY_A
+        );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => array_map( function( $product ) {
+                return [
+                    'id'                      => (int) $product['id'],
+                    'merchant_id'             => (int) $product['merchant_id'],
+                    'product_category_id'     => $product['product_category_id'] ? (int) $product['product_category_id'] : null,
+                    'category_name'           => $product['category_name'] ?? null,
+                    'category_slug'           => $product['category_slug'] ?? null,
+                    'name'                    => $product['name'],
+                    'description'             => $product['description'] ?? '',
+                    'price'                   => (float) $product['price'],
+                    'image'                   => $product['image'] ?? null,
+                    'stock_quantity'          => (int) $product['stock_quantity'],
+                    'online_purchase_enabled' => (bool) $product['online_purchase_enabled'],
+                    'status'                  => $product['status'],
+                    'created_at'              => $product['created_at'],
+                    'updated_at'              => $product['updated_at'],
+                ];
+            }, $products ?: [] ),
+        ] );
+    }
+
+    /**
+     * Create a new product.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function create_product( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $table = $wpdb->prefix . 'cwm_products';
+
+        $name                    = sanitize_text_field( $request->get_param( 'name' ) );
+        $description             = sanitize_textarea_field( $request->get_param( 'description' ) ?? '' );
+        $price                   = floatval( $request->get_param( 'price' ) ?? 0 );
+        $product_category_id     = $request->get_param( 'product_category_id' ) ? (int) $request->get_param( 'product_category_id' ) : null;
+        $stock_quantity          = (int) ( $request->get_param( 'stock_quantity' ) ?? 0 );
+        $online_purchase_enabled = (bool) $request->get_param( 'online_purchase_enabled' );
+
+        if ( empty( $name ) ) {
+            return new WP_Error( 'cwm_invalid_name', __( 'نام محصول الزامی است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        // Handle image upload
+        $image_url = null;
+        if ( ! empty( $_FILES['image'] ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+
+            $upload = wp_handle_upload( $_FILES['image'], [ 'test_form' => false ] );
+            if ( $upload && ! isset( $upload['error'] ) ) {
+                $image_url = $upload['url'];
+            }
+        }
+
+        $result = $wpdb->insert(
+            $table,
+            [
+                'merchant_id'             => $user_id,
+                'product_category_id'     => $product_category_id,
+                'name'                    => $name,
+                'description'             => $description,
+                'price'                   => $price,
+                'image'                   => $image_url,
+                'stock_quantity'          => $stock_quantity,
+                'online_purchase_enabled' => $online_purchase_enabled ? 1 : 0,
+                'status'                  => 'active',
+            ],
+            [ '%d', '%d', '%s', '%s', '%f', '%s', '%d', '%d', '%s' ]
+        );
+
+        if ( false === $result ) {
+            return new WP_Error( 'cwm_db_error', __( 'خطا در ایجاد محصول.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+        }
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'محصول با موفقیت ایجاد شد.', 'company-wallet-manager' ),
+            'data'    => [
+                'id' => $wpdb->insert_id,
+            ],
+        ] );
+    }
+
+    /**
+     * Get a single product.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function get_product( WP_REST_Request $request ) {
+        global $wpdb;
+        $product_id = (int) $request->get_param( 'id' );
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $categories_table = $wpdb->prefix . 'cwm_product_categories';
+
+        $product = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT p.*, pc.name as category_name, pc.slug as category_slug 
+                FROM {$products_table} p 
+                LEFT JOIN {$categories_table} pc ON p.product_category_id = pc.id 
+                WHERE p.id = %d",
+                $product_id
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $product ) {
+            return new WP_Error( 'cwm_product_not_found', __( 'محصول یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'id'                      => (int) $product['id'],
+                'merchant_id'             => (int) $product['merchant_id'],
+                'product_category_id'     => $product['product_category_id'] ? (int) $product['product_category_id'] : null,
+                'category_name'           => $product['category_name'] ?? null,
+                'category_slug'           => $product['category_slug'] ?? null,
+                'name'                    => $product['name'],
+                'description'             => $product['description'] ?? '',
+                'price'                   => (float) $product['price'],
+                'image'                   => $product['image'] ?? null,
+                'stock_quantity'          => (int) $product['stock_quantity'],
+                'online_purchase_enabled' => (bool) $product['online_purchase_enabled'],
+                'status'                  => $product['status'],
+                'created_at'              => $product['created_at'],
+                'updated_at'              => $product['updated_at'],
+            ],
+        ] );
+    }
+
+    /**
+     * Update a product.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function update_product( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $current_user = wp_get_current_user();
+        $is_admin = $this->user_has_role( $current_user, 'administrator' ) || user_can( $current_user, 'manage_wallets' );
+        $product_id = (int) $request->get_param( 'id' );
+        $table = $wpdb->prefix . 'cwm_products';
+
+        // Verify ownership
+        $product = $wpdb->get_row( $wpdb->prepare( "SELECT merchant_id FROM {$table} WHERE id = %d", $product_id ), ARRAY_A );
+        if ( ! $product || ( ! $is_admin && (int) $product['merchant_id'] !== $user_id ) ) {
+            return new WP_Error( 'cwm_forbidden', __( 'شما مجاز به ویرایش این محصول نیستید.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+        }
+
+        $update_data = [];
+        $update_format = [];
+
+        if ( $request->has_param( 'name' ) ) {
+            $update_data['name'] = sanitize_text_field( $request->get_param( 'name' ) );
+            $update_format[] = '%s';
+        }
+
+        if ( $request->has_param( 'description' ) ) {
+            $update_data['description'] = sanitize_textarea_field( $request->get_param( 'description' ) );
+            $update_format[] = '%s';
+        }
+
+        if ( $request->has_param( 'price' ) ) {
+            $update_data['price'] = floatval( $request->get_param( 'price' ) );
+            $update_format[] = '%f';
+        }
+
+        if ( $request->has_param( 'product_category_id' ) ) {
+            $update_data['product_category_id'] = $request->get_param( 'product_category_id' ) ? (int) $request->get_param( 'product_category_id' ) : null;
+            $update_format[] = '%d';
+        }
+
+        if ( $request->has_param( 'stock_quantity' ) ) {
+            $update_data['stock_quantity'] = (int) $request->get_param( 'stock_quantity' );
+            $update_format[] = '%d';
+        }
+
+        if ( $request->has_param( 'online_purchase_enabled' ) ) {
+            $update_data['online_purchase_enabled'] = (bool) $request->get_param( 'online_purchase_enabled' ) ? 1 : 0;
+            $update_format[] = '%d';
+        }
+
+        if ( $request->has_param( 'status' ) ) {
+            $update_data['status'] = sanitize_text_field( $request->get_param( 'status' ) );
+            $update_format[] = '%s';
+        }
+
+        // Handle image upload
+        if ( ! empty( $_FILES['image'] ) ) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+
+            $upload = wp_handle_upload( $_FILES['image'], [ 'test_form' => false ] );
+            if ( $upload && ! isset( $upload['error'] ) ) {
+                $update_data['image'] = $upload['url'];
+                $update_format[] = '%s';
+            }
+        }
+
+        if ( empty( $update_data ) ) {
+            return new WP_Error( 'cwm_no_data', __( 'هیچ داده‌ای برای به‌روزرسانی ارسال نشده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $result = $wpdb->update(
+            $table,
+            $update_data,
+            [ 'id' => $product_id ],
+            $update_format,
+            [ '%d' ]
+        );
+
+        if ( false === $result ) {
+            return new WP_Error( 'cwm_db_error', __( 'خطا در به‌روزرسانی محصول.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+        }
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'محصول با موفقیت به‌روزرسانی شد.', 'company-wallet-manager' ),
+        ] );
+    }
+
+    /**
+     * Delete a product.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function delete_product( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $current_user = wp_get_current_user();
+        $is_admin = $this->user_has_role( $current_user, 'administrator' ) || user_can( $current_user, 'manage_wallets' );
+        $product_id = (int) $request->get_param( 'id' );
+        $table = $wpdb->prefix . 'cwm_products';
+
+        // Verify ownership
+        $product = $wpdb->get_row( $wpdb->prepare( "SELECT merchant_id FROM {$table} WHERE id = %d", $product_id ), ARRAY_A );
+        if ( ! $product || ( ! $is_admin && (int) $product['merchant_id'] !== $user_id ) ) {
+            return new WP_Error( 'cwm_forbidden', __( 'شما مجاز به حذف این محصول نیستید.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+        }
+
+        $result = $wpdb->delete( $table, [ 'id' => $product_id ], [ '%d' ] );
+
+        if ( false === $result ) {
+            return new WP_Error( 'cwm_db_error', __( 'خطا در حذف محصول.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+        }
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'محصول با موفقیت حذف شد.', 'company-wallet-manager' ),
+        ] );
+    }
+
+    /**
+     * Get online purchase enabled products for employees.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function get_online_products( WP_REST_Request $request ) {
+        global $wpdb;
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $categories_table = $wpdb->prefix . 'cwm_product_categories';
+        $merchants_table = $wpdb->prefix . 'users';
+
+        $products = $wpdb->get_results(
+            "SELECT p.*, pc.name as category_name, pc.slug as category_slug, 
+                    u.display_name as merchant_name,
+                    (SELECT meta_value FROM {$wpdb->usermeta} WHERE user_id = p.merchant_id AND meta_key = '_cwm_store_name') as store_name
+            FROM {$products_table} p 
+            LEFT JOIN {$categories_table} pc ON p.product_category_id = pc.id 
+            LEFT JOIN {$merchants_table} u ON p.merchant_id = u.ID
+            WHERE p.online_purchase_enabled = 1 AND p.status = 'active' AND p.stock_quantity > 0
+            ORDER BY p.created_at DESC",
+            ARRAY_A
+        );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => array_map( function( $product ) {
+                return [
+                    'id'                      => (int) $product['id'],
+                    'merchant_id'             => (int) $product['merchant_id'],
+                    'merchant_name'           => $product['merchant_name'] ?? '',
+                    'store_name'              => $product['store_name'] ?? '',
+                    'product_category_id'     => $product['product_category_id'] ? (int) $product['product_category_id'] : null,
+                    'category_name'           => $product['category_name'] ?? null,
+                    'category_slug'           => $product['category_slug'] ?? null,
+                    'name'                    => $product['name'],
+                    'description'             => $product['description'] ?? '',
+                    'price'                   => (float) $product['price'],
+                    'image'                   => $product['image'] ?? null,
+                    'stock_quantity'          => (int) $product['stock_quantity'],
+                    'online_purchase_enabled' => true,
+                ];
+            }, $products ?: [] ),
+        ] );
+    }
+
+    // ==================== Cart Methods ====================
+
+    /**
+     * Get cart items for current employee.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function get_cart( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $cart_table = $wpdb->prefix . 'cwm_cart_items';
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $categories_table = $wpdb->prefix . 'cwm_product_categories';
+
+        $items = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT ci.*, p.name as product_name, p.price, p.image, p.stock_quantity, 
+                        p.merchant_id, p.product_category_id, pc.name as category_name,
+                        (SELECT meta_value FROM {$wpdb->usermeta} WHERE user_id = p.merchant_id AND meta_key = '_cwm_store_name') as store_name
+                FROM {$cart_table} ci
+                INNER JOIN {$products_table} p ON ci.product_id = p.id
+                LEFT JOIN {$categories_table} pc ON p.product_category_id = pc.id
+                WHERE ci.employee_id = %d AND p.online_purchase_enabled = 1 AND p.status = 'active'
+                ORDER BY ci.created_at DESC",
+                $user_id
+            ),
+            ARRAY_A
+        );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => array_map( function( $item ) {
+                return [
+                    'id'                  => (int) $item['id'],
+                    'product_id'          => (int) $item['product_id'],
+                    'quantity'            => (int) $item['quantity'],
+                    'product_name'        => $item['product_name'],
+                    'price'               => (float) $item['price'],
+                    'subtotal'            => (float) $item['price'] * (int) $item['quantity'],
+                    'image'               => $item['image'] ?? null,
+                    'stock_quantity'      => (int) $item['stock_quantity'],
+                    'merchant_id'         => (int) $item['merchant_id'],
+                    'store_name'          => $item['store_name'] ?? '',
+                    'product_category_id' => $item['product_category_id'] ? (int) $item['product_category_id'] : null,
+                    'category_name'       => $item['category_name'] ?? null,
+                ];
+            }, $items ?: [] ),
+        ] );
+    }
+
+    /**
+     * Add item to cart.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function add_to_cart( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $product_id = (int) $request->get_param( 'product_id' );
+        $quantity = (int) ( $request->get_param( 'quantity' ) ?? 1 );
+
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $cart_table = $wpdb->prefix . 'cwm_cart_items';
+
+        // Verify product exists and is available for online purchase
+        $product = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id, stock_quantity, online_purchase_enabled, status FROM {$products_table} WHERE id = %d",
+                $product_id
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $product ) {
+            return new WP_Error( 'cwm_product_not_found', __( 'محصول یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        if ( ! $product['online_purchase_enabled'] || $product['status'] !== 'active' ) {
+            return new WP_Error( 'cwm_product_not_available', __( 'این محصول برای خرید آنلاین در دسترس نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        if ( $quantity > (int) $product['stock_quantity'] ) {
+            return new WP_Error( 'cwm_insufficient_stock', __( 'موجودی محصول کافی نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        // Check if item already in cart
+        $existing = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id, quantity FROM {$cart_table} WHERE employee_id = %d AND product_id = %d",
+                $user_id,
+                $product_id
+            ),
+            ARRAY_A
+        );
+
+        if ( $existing ) {
+            $new_quantity = (int) $existing['quantity'] + $quantity;
+            if ( $new_quantity > (int) $product['stock_quantity'] ) {
+                return new WP_Error( 'cwm_insufficient_stock', __( 'موجودی محصول کافی نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+            }
+
+            $wpdb->update(
+                $cart_table,
+                [ 'quantity' => $new_quantity ],
+                [ 'id' => (int) $existing['id'] ],
+                [ '%d' ],
+                [ '%d' ]
+            );
+        } else {
+            $wpdb->insert(
+                $cart_table,
+                [
+                    'employee_id' => $user_id,
+                    'product_id'  => $product_id,
+                    'quantity'    => $quantity,
+                ],
+                [ '%d', '%d', '%d' ]
+            );
+        }
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'محصول به سبد خرید اضافه شد.', 'company-wallet-manager' ),
+        ] );
+    }
+
+    /**
+     * Remove item from cart.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function remove_from_cart( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $item_id = (int) $request->get_param( 'id' );
+        $cart_table = $wpdb->prefix . 'cwm_cart_items';
+
+        // Verify ownership
+        $item = $wpdb->get_row(
+            $wpdb->prepare( "SELECT id FROM {$cart_table} WHERE id = %d AND employee_id = %d", $item_id, $user_id ),
+            ARRAY_A
+        );
+
+        if ( ! $item ) {
+            return new WP_Error( 'cwm_item_not_found', __( 'آیتم در سبد خرید یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $wpdb->delete( $cart_table, [ 'id' => $item_id ], [ '%d' ] );
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'آیتم از سبد خرید حذف شد.', 'company-wallet-manager' ),
+        ] );
+    }
+
+    /**
+     * Update cart item quantity.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function update_cart_item( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $item_id = (int) $request->get_param( 'id' );
+        $quantity = (int) $request->get_param( 'quantity' );
+
+        $cart_table = $wpdb->prefix . 'cwm_cart_items';
+        $products_table = $wpdb->prefix . 'cwm_products';
+
+        if ( $quantity <= 0 ) {
+            return $this->remove_from_cart( $request );
+        }
+
+        // Verify ownership and get product info
+        $item = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT ci.*, p.stock_quantity FROM {$cart_table} ci
+                INNER JOIN {$products_table} p ON ci.product_id = p.id
+                WHERE ci.id = %d AND ci.employee_id = %d",
+                $item_id,
+                $user_id
+            ),
+            ARRAY_A
+        );
+
+        if ( ! $item ) {
+            return new WP_Error( 'cwm_item_not_found', __( 'آیتم در سبد خرید یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        if ( $quantity > (int) $item['stock_quantity'] ) {
+            return new WP_Error( 'cwm_insufficient_stock', __( 'موجودی محصول کافی نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $wpdb->update(
+            $cart_table,
+            [ 'quantity' => $quantity ],
+            [ 'id' => $item_id ],
+            [ '%d' ],
+            [ '%d' ]
+        );
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'تعداد به‌روزرسانی شد.', 'company-wallet-manager' ),
+        ] );
+    }
+
+    /**
+     * Clear cart.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function clear_cart( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $cart_table = $wpdb->prefix . 'cwm_cart_items';
+
+        $wpdb->delete( $cart_table, [ 'employee_id' => $user_id ], [ '%d' ] );
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'سبد خرید خالی شد.', 'company-wallet-manager' ),
+        ] );
+    }
+
+    // ==================== Orders Methods ====================
+
+    /**
+     * List orders (for employees or merchants based on context).
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function list_orders( WP_REST_Request $request ) {
+        // This will be handled by list_employee_orders or list_merchant_orders
+        return $this->list_employee_orders( $request );
+    }
+
+    /**
+     * List orders for current employee.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function list_employee_orders( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+        $order_items_table = $wpdb->prefix . 'cwm_order_items';
+
+        $orders = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT o.*, 
+                        (SELECT meta_value FROM {$wpdb->usermeta} WHERE user_id = o.merchant_id AND meta_key = '_cwm_store_name') as store_name
+                FROM {$orders_table} o
+                WHERE o.employee_id = %d
+                ORDER BY o.created_at DESC",
+                $user_id
+            ),
+            ARRAY_A
+        );
+
+        $result = [];
+        foreach ( $orders as $order ) {
+            $items = $wpdb->get_results(
+                $wpdb->prepare( "SELECT * FROM {$order_items_table} WHERE order_id = %d", (int) $order['id'] ),
+                ARRAY_A
+            );
+
+            $result[] = [
+                'id'                => (int) $order['id'],
+                'order_number'      => $order['order_number'],
+                'employee_id'       => (int) $order['employee_id'],
+                'merchant_id'       => (int) $order['merchant_id'],
+                'store_name'        => $order['store_name'] ?? '',
+                'total_amount'      => (float) $order['total_amount'],
+                'customer_name'     => $order['customer_name'],
+                'customer_family'   => $order['customer_family'],
+                'customer_address'  => $order['customer_address'],
+                'customer_mobile'   => $order['customer_mobile'],
+                'customer_postal_code' => $order['customer_postal_code'],
+                'tracking_code'     => $order['tracking_code'] ?? null,
+                'status'            => $order['status'],
+                'payment_status'    => $order['payment_status'],
+                'created_at'        => $order['created_at'],
+                'updated_at'        => $order['updated_at'],
+                'items'             => array_map( function( $item ) {
+                    return [
+                        'id'            => (int) $item['id'],
+                        'product_id'    => (int) $item['product_id'],
+                        'product_name'  => $item['product_name'],
+                        'product_price' => (float) $item['product_price'],
+                        'quantity'      => (int) $item['quantity'],
+                        'subtotal'      => (float) $item['subtotal'],
+                    ];
+                }, $items ?: [] ),
+            ];
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $result,
+        ] );
+    }
+
+    /**
+     * List orders for current merchant.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function list_merchant_orders( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+        $order_items_table = $wpdb->prefix . 'cwm_order_items';
+
+        $orders = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT o.* FROM {$orders_table} o
+                WHERE o.merchant_id = %d
+                ORDER BY o.created_at DESC",
+                $user_id
+            ),
+            ARRAY_A
+        );
+
+        $result = [];
+        foreach ( $orders as $order ) {
+            $items = $wpdb->get_results(
+                $wpdb->prepare( "SELECT * FROM {$order_items_table} WHERE order_id = %d", (int) $order['id'] ),
+                ARRAY_A
+            );
+
+            $result[] = [
+                'id'                => (int) $order['id'],
+                'order_number'      => $order['order_number'],
+                'employee_id'       => (int) $order['employee_id'],
+                'merchant_id'       => (int) $order['merchant_id'],
+                'total_amount'      => (float) $order['total_amount'],
+                'customer_name'     => $order['customer_name'],
+                'customer_family'   => $order['customer_family'],
+                'customer_address'  => $order['customer_address'],
+                'customer_mobile'   => $order['customer_mobile'],
+                'customer_postal_code' => $order['customer_postal_code'],
+                'tracking_code'     => $order['tracking_code'] ?? null,
+                'status'            => $order['status'],
+                'payment_status'    => $order['payment_status'],
+                'created_at'        => $order['created_at'],
+                'updated_at'        => $order['updated_at'],
+                'items'             => array_map( function( $item ) {
+                    return [
+                        'id'            => (int) $item['id'],
+                        'product_id'    => (int) $item['product_id'],
+                        'product_name'  => $item['product_name'],
+                        'product_price' => (float) $item['product_price'],
+                        'quantity'      => (int) $item['quantity'],
+                        'subtotal'      => (float) $item['subtotal'],
+                    ];
+                }, $items ?: [] ),
+            ];
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => $result,
+        ] );
+    }
+
+    /**
+     * Get a single order.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function get_order( WP_REST_Request $request ) {
+        global $wpdb;
+        $order_id = (int) $request->get_param( 'id' );
+        $user_id = get_current_user_id();
+        $user = wp_get_current_user();
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+        $order_items_table = $wpdb->prefix . 'cwm_order_items';
+
+        $order = $wpdb->get_row(
+            $wpdb->prepare( "SELECT * FROM {$orders_table} WHERE id = %d", $order_id ),
+            ARRAY_A
+        );
+
+        if ( ! $order ) {
+            return new WP_Error( 'cwm_order_not_found', __( 'سفارش یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        // Check permission
+        $is_employee = in_array( 'employee', (array) $user->roles, true );
+        $is_merchant = in_array( 'merchant', (array) $user->roles, true );
+
+        if ( $is_employee && (int) $order['employee_id'] !== $user_id ) {
+            return new WP_Error( 'cwm_forbidden', __( 'شما مجاز به مشاهده این سفارش نیستید.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+        }
+
+        if ( $is_merchant && (int) $order['merchant_id'] !== $user_id ) {
+            return new WP_Error( 'cwm_forbidden', __( 'شما مجاز به مشاهده این سفارش نیستید.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+        }
+
+        $items = $wpdb->get_results(
+            $wpdb->prepare( "SELECT * FROM {$order_items_table} WHERE order_id = %d", $order_id ),
+            ARRAY_A
+        );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'id'                => (int) $order['id'],
+                'order_number'      => $order['order_number'],
+                'employee_id'       => (int) $order['employee_id'],
+                'merchant_id'       => (int) $order['merchant_id'],
+                'total_amount'      => (float) $order['total_amount'],
+                'customer_name'     => $order['customer_name'],
+                'customer_family'   => $order['customer_family'],
+                'customer_address'  => $order['customer_address'],
+                'customer_mobile'   => $order['customer_mobile'],
+                'customer_postal_code' => $order['customer_postal_code'],
+                'tracking_code'     => $order['tracking_code'] ?? null,
+                'status'            => $order['status'],
+                'payment_status'    => $order['payment_status'],
+                'created_at'        => $order['created_at'],
+                'updated_at'        => $order['updated_at'],
+                'items'             => array_map( function( $item ) {
+                    return [
+                        'id'            => (int) $item['id'],
+                        'product_id'    => (int) $item['product_id'],
+                        'product_name'  => $item['product_name'],
+                        'product_price' => (float) $item['product_price'],
+                        'quantity'      => (int) $item['quantity'],
+                        'subtotal'      => (float) $item['subtotal'],
+                    ];
+                }, $items ?: [] ),
+            ],
+        ] );
+    }
+
+    /**
+     * Create a new order from cart.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function create_order( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $cart_table = $wpdb->prefix . 'cwm_cart_items';
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+        $order_items_table = $wpdb->prefix . 'cwm_order_items';
+        $wallet_table = $wpdb->prefix . 'cwm_wallets';
+        $transactions_table = $wpdb->prefix . 'cwm_transactions';
+        $limits_table = $wpdb->prefix . 'cwm_employee_category_limits';
+
+        // Get customer info
+        $customer_name     = sanitize_text_field( $request->get_param( 'customer_name' ) );
+        $customer_family   = sanitize_text_field( $request->get_param( 'customer_family' ) );
+        $customer_address  = sanitize_textarea_field( $request->get_param( 'customer_address' ) );
+        $customer_mobile   = sanitize_text_field( $request->get_param( 'customer_mobile' ) );
+        $customer_postal_code = sanitize_text_field( $request->get_param( 'customer_postal_code' ) );
+
+        if ( empty( $customer_name ) || empty( $customer_family ) || empty( $customer_address ) || empty( $customer_mobile ) ) {
+            return new WP_Error( 'cwm_invalid_data', __( 'لطفاً تمام فیلدهای الزامی را پر کنید.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        // Get cart items grouped by merchant
+        $cart_items = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT ci.*, p.merchant_id, p.price, p.name as product_name, p.product_category_id, p.stock_quantity
+                FROM {$cart_table} ci
+                INNER JOIN {$products_table} p ON ci.product_id = p.id
+                WHERE ci.employee_id = %d AND p.online_purchase_enabled = 1 AND p.status = 'active'",
+                $user_id
+            ),
+            ARRAY_A
+        );
+
+        if ( empty( $cart_items ) ) {
+            return new WP_Error( 'cwm_empty_cart', __( 'سبد خرید شما خالی است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        // Group by merchant
+        $merchant_orders = [];
+        foreach ( $cart_items as $item ) {
+            $merchant_id = (int) $item['merchant_id'];
+            if ( ! isset( $merchant_orders[ $merchant_id ] ) ) {
+                $merchant_orders[ $merchant_id ] = [];
+            }
+            $merchant_orders[ $merchant_id ][] = $item;
+        }
+
+        $wpdb->query( 'START TRANSACTION' );
+
+        try {
+            $created_orders = [];
+
+            foreach ( $merchant_orders as $merchant_id => $items ) {
+                $total_amount = 0;
+                $order_items_data = [];
+
+                // Calculate total and validate stock
+                foreach ( $items as $item ) {
+                    if ( (int) $item['quantity'] > (int) $item['stock_quantity'] ) {
+                        throw new \Exception( sprintf( __( 'موجودی محصول %s کافی نیست.', 'company-wallet-manager' ), $item['product_name'] ) );
+                    }
+
+                    $subtotal = (float) $item['price'] * (int) $item['quantity'];
+                    $total_amount += $subtotal;
+
+                    $order_items_data[] = [
+                        'product_id'    => (int) $item['product_id'],
+                        'product_name'  => $item['product_name'],
+                        'product_price' => (float) $item['price'],
+                        'quantity'      => (int) $item['quantity'],
+                        'subtotal'      => $subtotal,
+                        'category_id'   => $item['product_category_id'] ? (int) $item['product_category_id'] : null,
+                    ];
+                }
+
+                // Check wallet balance
+                $wallet = $wpdb->get_row(
+                    $wpdb->prepare( "SELECT balance FROM {$wallet_table} WHERE user_id = %d", $user_id ),
+                    ARRAY_A
+                );
+
+                $current_balance = $wallet ? (float) $wallet['balance'] : 0;
+
+                if ( $current_balance < $total_amount ) {
+                    throw new \Exception( __( 'موجودی کیف پول کافی نیست.', 'company-wallet-manager' ) );
+                }
+
+                // Check category limits (similar to payment request validation)
+                foreach ( $order_items_data as $order_item ) {
+                    if ( $order_item['category_id'] ) {
+                        $limit = $wpdb->get_row(
+                            $wpdb->prepare(
+                                "SELECT spending_limit, spent_amount FROM {$limits_table} 
+                                WHERE employee_id = %d AND category_id = %d",
+                                $user_id,
+                                $order_item['category_id']
+                            ),
+                            ARRAY_A
+                        );
+
+                        if ( $limit ) {
+                            $remaining = (float) $limit['spending_limit'] - (float) $limit['spent_amount'];
+                            if ( $order_item['subtotal'] > $remaining ) {
+                                throw new \Exception( sprintf( __( 'سقف دسته‌بندی برای محصول %s کافی نیست.', 'company-wallet-manager' ), $order_item['product_name'] ) );
+                            }
+                        }
+                    }
+                }
+
+                // Generate order number
+                $order_number = 'ORD-' . date( 'Ymd' ) . '-' . str_pad( (string) time(), 10, '0', STR_PAD_LEFT ) . '-' . $merchant_id;
+
+                // Create order
+                $order_result = $wpdb->insert(
+                    $orders_table,
+                    [
+                        'order_number'        => $order_number,
+                        'employee_id'         => $user_id,
+                        'merchant_id'         => $merchant_id,
+                        'total_amount'        => $total_amount,
+                        'customer_name'       => $customer_name,
+                        'customer_family'     => $customer_family,
+                        'customer_address'    => $customer_address,
+                        'customer_mobile'     => $customer_mobile,
+                        'customer_postal_code' => $customer_postal_code,
+                        'status'              => 'pending',
+                        'payment_status'      => 'pending',
+                    ],
+                    [ '%s', '%d', '%d', '%f', '%s', '%s', '%s', '%s', '%s', '%s', '%s' ]
+                );
+
+                if ( false === $order_result ) {
+                    throw new \Exception( __( 'خطا در ایجاد سفارش.', 'company-wallet-manager' ) );
+                }
+
+                $order_id = $wpdb->insert_id;
+
+                // Create order items
+                foreach ( $order_items_data as $item_data ) {
+                    $wpdb->insert(
+                        $order_items_table,
+                        [
+                            'order_id'      => $order_id,
+                            'product_id'    => $item_data['product_id'],
+                            'product_name'  => $item_data['product_name'],
+                            'product_price' => $item_data['product_price'],
+                            'quantity'      => $item_data['quantity'],
+                            'subtotal'      => $item_data['subtotal'],
+                        ],
+                        [ '%d', '%d', '%s', '%f', '%d', '%f' ]
+                    );
+
+                    // Update stock
+                    $wpdb->query(
+                        $wpdb->prepare(
+                            "UPDATE {$products_table} SET stock_quantity = stock_quantity - %d WHERE id = %d",
+                            $item_data['quantity'],
+                            $item_data['product_id']
+                        )
+                    );
+
+                    // Update category limits
+                    if ( $item_data['category_id'] ) {
+                        $wpdb->query(
+                            $wpdb->prepare(
+                                "INSERT INTO {$limits_table} (employee_id, category_id, spending_limit, spent_amount)
+                                VALUES (%d, %d, 0, %f)
+                                ON DUPLICATE KEY UPDATE spent_amount = spent_amount + %f",
+                                $user_id,
+                                $item_data['category_id'],
+                                $item_data['subtotal'],
+                                $item_data['subtotal']
+                            )
+                        );
+                    }
+                }
+
+                // Deduct from wallet
+                $new_balance = $current_balance - $total_amount;
+                $wpdb->query(
+                    $wpdb->prepare(
+                        "INSERT INTO {$wallet_table} (user_id, balance) VALUES (%d, %f)
+                        ON DUPLICATE KEY UPDATE balance = %f",
+                        $user_id,
+                        $new_balance,
+                        $new_balance
+                    )
+                );
+
+                // Create transaction
+                $wpdb->insert(
+                    $transactions_table,
+                    [
+                        'type'                      => 'online_purchase',
+                        'sender_id'                 => $user_id,
+                        'receiver_id'               => $merchant_id,
+                        'related_request'           => $order_id,
+                        'amount'                    => $total_amount,
+                        'balance_snapshot_sender'   => $new_balance,
+                        'status'                    => 'completed',
+                        'metadata'                  => wp_json_encode( [
+                            'order_number' => $order_number,
+                            'order_id'     => $order_id,
+                        ] ),
+                    ],
+                    [ '%s', '%d', '%d', '%d', '%f', '%f', '%s', '%s' ]
+                );
+
+                // Add to merchant wallet
+                $merchant_wallet = $wpdb->get_row(
+                    $wpdb->prepare( "SELECT balance FROM {$wallet_table} WHERE user_id = %d", $merchant_id ),
+                    ARRAY_A
+                );
+
+                $merchant_balance = $merchant_wallet ? (float) $merchant_wallet['balance'] : 0;
+                $merchant_new_balance = $merchant_balance + $total_amount;
+
+                $wpdb->query(
+                    $wpdb->prepare(
+                        "INSERT INTO {$wallet_table} (user_id, balance) VALUES (%d, %f)
+                        ON DUPLICATE KEY UPDATE balance = %f",
+                        $merchant_id,
+                        $merchant_new_balance,
+                        $merchant_new_balance
+                    )
+                );
+
+                // Update order payment status
+                $wpdb->update(
+                    $orders_table,
+                    [ 'payment_status' => 'paid' ],
+                    [ 'id' => $order_id ],
+                    [ '%s' ],
+                    [ '%d' ]
+                );
+
+                $created_orders[] = [
+                    'id'           => $order_id,
+                    'order_number' => $order_number,
+                    'total_amount' => $total_amount,
+                ];
+            }
+
+            // Clear cart
+            $wpdb->delete( $cart_table, [ 'employee_id' => $user_id ], [ '%d' ] );
+
+            $wpdb->query( 'COMMIT' );
+
+            return rest_ensure_response( [
+                'status'  => 'success',
+                'message' => __( 'سفارش با موفقیت ثبت شد.', 'company-wallet-manager' ),
+                'data'    => [
+                    'orders' => $created_orders,
+                ],
+            ] );
+
+        } catch ( \Exception $e ) {
+            $wpdb->query( 'ROLLBACK' );
+            return new WP_Error( 'cwm_order_error', $e->getMessage(), [ 'status' => 400 ] );
+        }
+    }
+
+    /**
+     * Update order status (for merchants).
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function update_order_status( WP_REST_Request $request ) {
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $order_id = (int) $request->get_param( 'id' );
+        $status = sanitize_text_field( $request->get_param( 'status' ) );
+        $tracking_code = sanitize_text_field( $request->get_param( 'tracking_code' ) ?? '' );
+
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+
+        // Verify ownership
+        $order = $wpdb->get_row(
+            $wpdb->prepare( "SELECT merchant_id FROM {$orders_table} WHERE id = %d", $order_id ),
+            ARRAY_A
+        );
+
+        if ( ! $order || (int) $order['merchant_id'] !== $user_id ) {
+            return new WP_Error( 'cwm_forbidden', __( 'شما مجاز به ویرایش این سفارش نیستید.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+        }
+
+        $update_data = [];
+        $update_format = [];
+
+        if ( ! empty( $status ) ) {
+            $valid_statuses = [ 'pending', 'processing', 'shipped', 'delivered', 'cancelled' ];
+            if ( ! in_array( $status, $valid_statuses, true ) ) {
+                return new WP_Error( 'cwm_invalid_status', __( 'وضعیت نامعتبر است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+            }
+            $update_data['status'] = $status;
+            $update_format[] = '%s';
+        }
+
+        if ( $request->has_param( 'tracking_code' ) ) {
+            $update_data['tracking_code'] = $tracking_code;
+            $update_format[] = '%s';
+        }
+
+        if ( empty( $update_data ) ) {
+            return new WP_Error( 'cwm_no_data', __( 'هیچ داده‌ای برای به‌روزرسانی ارسال نشده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $result = $wpdb->update(
+            $orders_table,
+            $update_data,
+            [ 'id' => $order_id ],
+            $update_format,
+            [ '%d' ]
+        );
+
+        if ( false === $result ) {
+            return new WP_Error( 'cwm_db_error', __( 'خطا در به‌روزرسانی سفارش.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+        }
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'وضعیت سفارش به‌روزرسانی شد.', 'company-wallet-manager' ),
+        ] );
+    }
+
+    // ==================== Reports Methods ====================
+
+    /**
+     * Get admin order reports.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function get_admin_order_reports( WP_REST_Request $request ) {
+        global $wpdb;
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+        $order_items_table = $wpdb->prefix . 'cwm_order_items';
+        $transactions_table = $wpdb->prefix . 'cwm_transactions';
+
+        // Total online orders
+        $total_online_orders = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$orders_table} WHERE payment_status = 'paid'"
+        );
+
+        // Total online sales
+        $total_online_sales = (float) $wpdb->get_var(
+            "SELECT COALESCE(SUM(total_amount), 0) FROM {$orders_table} WHERE payment_status = 'paid'"
+        );
+
+        // Total in-person sales (from payment_requests)
+        $payment_requests_table = $wpdb->prefix . 'cwm_payment_requests';
+        $total_in_person_sales = (float) $wpdb->get_var(
+            "SELECT COALESCE(SUM(amount), 0) FROM {$transactions_table} 
+            WHERE type = 'payment' AND status = 'completed'"
+        );
+
+        // Orders by status
+        $orders_by_status = $wpdb->get_results(
+            "SELECT status, COUNT(*) as count FROM {$orders_table} GROUP BY status",
+            ARRAY_A
+        );
+
+        // Sales by merchant
+        $sales_by_merchant = $wpdb->get_results(
+            "SELECT o.merchant_id, 
+                    (SELECT meta_value FROM {$wpdb->usermeta} WHERE user_id = o.merchant_id AND meta_key = '_cwm_store_name') as store_name,
+                    COUNT(*) as order_count,
+                    SUM(o.total_amount) as total_sales
+            FROM {$orders_table} o
+            WHERE o.payment_status = 'paid'
+            GROUP BY o.merchant_id
+            ORDER BY total_sales DESC",
+            ARRAY_A
+        );
+
+        // Sales by product category
+        $sales_by_category = $wpdb->get_results(
+            "SELECT pc.id, pc.name, COUNT(DISTINCT o.id) as order_count, SUM(oi.subtotal) as total_sales
+            FROM {$order_items_table} oi
+            INNER JOIN {$orders_table} o ON oi.order_id = o.id
+            INNER JOIN {$wpdb->prefix}cwm_products p ON oi.product_id = p.id
+            LEFT JOIN {$wpdb->prefix}cwm_product_categories pc ON p.product_category_id = pc.id
+            WHERE o.payment_status = 'paid'
+            GROUP BY pc.id, pc.name
+            ORDER BY total_sales DESC",
+            ARRAY_A
+        );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'total_online_orders'    => $total_online_orders,
+                'total_online_sales'     => $total_online_sales,
+                'total_in_person_sales'  => $total_in_person_sales,
+                'orders_by_status'       => array_map( function( $row ) {
+                    return [
+                        'status' => $row['status'],
+                        'count'  => (int) $row['count'],
+                    ];
+                }, $orders_by_status ?: [] ),
+                'sales_by_merchant'      => array_map( function( $row ) {
+                    return [
+                        'merchant_id' => (int) $row['merchant_id'],
+                        'store_name'  => $row['store_name'] ?? '',
+                        'order_count' => (int) $row['order_count'],
+                        'total_sales' => (float) $row['total_sales'],
+                    ];
+                }, $sales_by_merchant ?: [] ),
+                'sales_by_category'      => array_map( function( $row ) {
+                    return [
+                        'category_id'  => (int) $row['id'],
+                        'category_name' => $row['name'] ?? 'بدون دسته‌بندی',
+                        'order_count'  => (int) $row['order_count'],
+                        'total_sales'  => (float) $row['total_sales'],
+                    ];
+                }, $sales_by_category ?: [] ),
+            ],
+        ] );
+    }
+
+    /**
+     * Get admin product reports.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function get_admin_product_reports( WP_REST_Request $request ) {
+        global $wpdb;
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $product_categories_table = $wpdb->prefix . 'cwm_product_categories';
+        $order_items_table = $wpdb->prefix . 'cwm_order_items';
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+
+        // Total products
+        $total_products = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$products_table}" );
+
+        // Products by category
+        $products_by_category = $wpdb->get_results(
+            "SELECT pc.id, pc.name, COUNT(p.id) as product_count
+            FROM {$products_table} p
+            LEFT JOIN {$product_categories_table} pc ON p.product_category_id = pc.id
+            GROUP BY pc.id, pc.name
+            ORDER BY product_count DESC",
+            ARRAY_A
+        );
+
+        // Top selling products
+        $top_products = $wpdb->get_results(
+            "SELECT p.id, p.name, p.merchant_id,
+                    (SELECT meta_value FROM {$wpdb->usermeta} WHERE user_id = p.merchant_id AND meta_key = '_cwm_store_name') as store_name,
+                    SUM(oi.quantity) as total_sold,
+                    SUM(oi.subtotal) as total_revenue
+            FROM {$order_items_table} oi
+            INNER JOIN {$orders_table} o ON oi.order_id = o.id
+            INNER JOIN {$products_table} p ON oi.product_id = p.id
+            WHERE o.payment_status = 'paid'
+            GROUP BY p.id, p.name, p.merchant_id
+            ORDER BY total_revenue DESC
+            LIMIT 20",
+            ARRAY_A
+        );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'total_products'         => $total_products,
+                'products_by_category'   => array_map( function( $row ) {
+                    return [
+                        'category_id'   => (int) $row['id'],
+                        'category_name' => $row['name'] ?? 'بدون دسته‌بندی',
+                        'product_count' => (int) $row['product_count'],
+                    ];
+                }, $products_by_category ?: [] ),
+                'top_products'           => array_map( function( $row ) {
+                    return [
+                        'product_id'   => (int) $row['id'],
+                        'product_name' => $row['name'],
+                        'merchant_id'  => (int) $row['merchant_id'],
+                        'store_name'   => $row['store_name'] ?? '',
+                        'total_sold'   => (int) $row['total_sold'],
+                        'total_revenue' => (float) $row['total_revenue'],
+                    ];
+                }, $top_products ?: [] ),
+            ],
+        ] );
+    }
+
+    /**
+     * Get company employee reports.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function get_company_employee_reports( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $user_email = $user->user_email;
+
+        // Get company employees
+        $employees = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT u.ID as employee_id, u.display_name, u.user_email
+                FROM {$wpdb->users} u
+                INNER JOIN {$wpdb->usermeta} um ON u.ID = um.user_id
+                WHERE um.meta_key = '_cwm_company_email' AND um.meta_value = %s",
+                $user_email
+            ),
+            ARRAY_A
+        );
+
+        if ( empty( $employees ) ) {
+            return rest_ensure_response( [
+                'status' => 'success',
+                'data'   => [
+                    'employees' => [],
+                ],
+            ] );
+        }
+
+        $employee_ids = array_map( function( $emp ) {
+            return (int) $emp['employee_id'];
+        }, $employees );
+
+        $placeholders = implode( ',', array_fill( 0, count( $employee_ids ), '%d' ) );
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+        $transactions_table = $wpdb->prefix . 'cwm_transactions';
+
+        // Get orders for employees
+        $orders = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT employee_id, COUNT(*) as order_count, SUM(total_amount) as total_spent
+                FROM {$orders_table}
+                WHERE employee_id IN ($placeholders) AND payment_status = 'paid'
+                GROUP BY employee_id",
+                ...$employee_ids
+            ),
+            ARRAY_A
+        );
+
+        // Get in-person transactions
+        $in_person_transactions = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT sender_id as employee_id, COUNT(*) as transaction_count, SUM(amount) as total_spent
+                FROM {$transactions_table}
+                WHERE sender_id IN ($placeholders) AND type = 'payment' AND status = 'completed'
+                GROUP BY sender_id",
+                ...$employee_ids
+            ),
+            ARRAY_A
+        );
+
+        $result = [];
+        foreach ( $employees as $employee ) {
+            $emp_id = (int) $employee['employee_id'];
+            $order_data = array_filter( $orders, function( $o ) use ( $emp_id ) {
+                return (int) $o['employee_id'] === $emp_id;
+            } );
+            $transaction_data = array_filter( $in_person_transactions, function( $t ) use ( $emp_id ) {
+                return (int) $t['employee_id'] === $emp_id;
+            } );
+
+            $order_info = ! empty( $order_data ) ? reset( $order_data ) : null;
+            $transaction_info = ! empty( $transaction_data ) ? reset( $transaction_data ) : null;
+
+            $result[] = [
+                'employee_id'         => $emp_id,
+                'employee_name'       => $employee['display_name'],
+                'employee_email'      => $employee['user_email'],
+                'online_orders'       => $order_info ? (int) $order_info['order_count'] : 0,
+                'online_spent'        => $order_info ? (float) $order_info['total_spent'] : 0,
+                'in_person_transactions' => $transaction_info ? (int) $transaction_info['transaction_count'] : 0,
+                'in_person_spent'     => $transaction_info ? (float) $transaction_info['total_spent'] : 0,
+                'total_spent'         => ( $order_info ? (float) $order_info['total_spent'] : 0 ) + ( $transaction_info ? (float) $transaction_info['total_spent'] : 0 ),
+            ];
+        }
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'employees' => $result,
+            ],
+        ] );
     }
 }

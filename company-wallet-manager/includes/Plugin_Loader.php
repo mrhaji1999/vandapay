@@ -167,5 +167,104 @@ class Plugin_Loader {
                         KEY category_id (category_id)
                 ) $charset_collate;";
                 dbDelta( $sql );
+
+                // Product categories table (shared across all merchants)
+                $table_name = $wpdb->prefix . 'cwm_product_categories';
+                $sql        = "CREATE TABLE $table_name (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        name VARCHAR(191) NOT NULL,
+                        slug VARCHAR(191) NOT NULL,
+                        description TEXT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY slug (slug)
+                ) $charset_collate;";
+                dbDelta( $sql );
+
+                // Products table
+                $table_name = $wpdb->prefix . 'cwm_products';
+                $sql        = "CREATE TABLE $table_name (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                        product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                        name VARCHAR(191) NOT NULL,
+                        description TEXT NULL,
+                        price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                        image VARCHAR(500) NULL,
+                        stock_quantity INT(11) NOT NULL DEFAULT 0,
+                        online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                        status VARCHAR(50) NOT NULL DEFAULT 'active',
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        KEY merchant_id (merchant_id),
+                        KEY product_category_id (product_category_id),
+                        KEY online_purchase_enabled (online_purchase_enabled),
+                        KEY status (status)
+                ) $charset_collate;";
+                dbDelta( $sql );
+
+                // Shopping cart items table
+                $table_name = $wpdb->prefix . 'cwm_cart_items';
+                $sql        = "CREATE TABLE $table_name (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        employee_id BIGINT(20) UNSIGNED NOT NULL,
+                        product_id BIGINT(20) UNSIGNED NOT NULL,
+                        quantity INT(11) NOT NULL DEFAULT 1,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY employee_product (employee_id, product_id),
+                        KEY employee_id (employee_id),
+                        KEY product_id (product_id)
+                ) $charset_collate;";
+                dbDelta( $sql );
+
+                // Orders table
+                $table_name = $wpdb->prefix . 'cwm_orders';
+                $sql        = "CREATE TABLE $table_name (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        order_number VARCHAR(50) NOT NULL,
+                        employee_id BIGINT(20) UNSIGNED NOT NULL,
+                        merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                        total_amount DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                        customer_name VARCHAR(191) NOT NULL,
+                        customer_family VARCHAR(191) NOT NULL,
+                        customer_address TEXT NOT NULL,
+                        customer_mobile VARCHAR(20) NOT NULL,
+                        customer_postal_code VARCHAR(20) NOT NULL,
+                        tracking_code VARCHAR(100) NULL,
+                        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                        payment_status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                        metadata LONGTEXT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        UNIQUE KEY order_number (order_number),
+                        KEY employee_id (employee_id),
+                        KEY merchant_id (merchant_id),
+                        KEY status (status),
+                        KEY payment_status (payment_status),
+                        KEY created_at (created_at)
+                ) $charset_collate;";
+                dbDelta( $sql );
+
+                // Order items table
+                $table_name = $wpdb->prefix . 'cwm_order_items';
+                $sql        = "CREATE TABLE $table_name (
+                        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                        order_id BIGINT(20) UNSIGNED NOT NULL,
+                        product_id BIGINT(20) UNSIGNED NOT NULL,
+                        product_name VARCHAR(191) NOT NULL,
+                        product_price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                        quantity INT(11) NOT NULL DEFAULT 1,
+                        subtotal DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (id),
+                        KEY order_id (order_id),
+                        KEY product_id (product_id)
+                ) $charset_collate;";
+                dbDelta( $sql );
         }
 }

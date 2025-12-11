@@ -4,7 +4,7 @@
  * Plugin URI:        https://example.com/
  * Description:       A 3-level wallet management system for companies, merchants, and employees integrated with WooCommerce.
  * Version:           1.0.3
- * Author:            محمدرضا حاجی
+ * Author:            Jules
  * Author URI:        https://example.com/
  * License:           GPL-2.0+
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
@@ -23,11 +23,7 @@ if ( ! defined( 'WPINC' ) ) {
 define( 'CWM_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
 // Require the Composer autoloader.
-if ( file_exists( CWM_PLUGIN_DIR . 'vendor/autoload.php' ) ) {
-	require_once CWM_PLUGIN_DIR . 'vendor/autoload.php';
-}
-
-// Require API controller files directly to ensure they are loaded
+require_once CWM_PLUGIN_DIR . 'vendor/autoload.php';
 require_once CWM_PLUGIN_DIR . 'includes/api/class-cwm-employee-controller.php';
 require_once CWM_PLUGIN_DIR . 'includes/api/Category_Controller.php';
 require_once CWM_PLUGIN_DIR . 'includes/api/Company_Category_Cap_Controller.php';
@@ -62,6 +58,10 @@ register_deactivation_hook( __FILE__, 'cwm_deactivate_plugin' );
  * are available and the plugin is loaded at the correct time.
  */
 function cwm_plugin_init() {
+        // Initialize the CORS manager FIRST so external dashboards can reach the REST API.
+        // This must be initialized early to handle preflight requests.
+        new CWM\CORS_Manager();
+
         // Initialize the settings page
         if ( is_admin() ) {
                 new CWM\Settings_Page();
@@ -70,19 +70,13 @@ function cwm_plugin_init() {
         // Custom post type registration.
         new CWM\Post_Types_Manager();
 
-        // Initialize the CORS manager so external dashboards can reach the REST API.
-        new CWM\CORS_Manager();
-
         // Initialize the API handler
         new CWM\API_Handler();
 
         // Register employee specific API endpoints.
         new CWM\API\CWM_Employee_Controller();
-
-        // Change role display name
-        add_filter( 'wp_roles', array( 'CWM\Role_Manager', 'change_role_display_name' ) );
 }
-add_action( 'plugins_loaded', 'cwm_plugin_init' );
+add_action( 'plugins_loaded', 'cwm_plugin_init', 1 );
 
 
 /**
@@ -97,14 +91,6 @@ add_action( 'init', 'cwm_register_shortcode' );
  * Render the React app.
  */
 function cwm_render_react_app() {
-    // Enqueue the CSS file.
-    wp_enqueue_style(
-        'cwm-react-app-css',
-        plugin_dir_url( __FILE__ ) . 'assets/css/ui-bundle.css',
-        array(),
-        '1.0.3'
-    );
-
     // Enqueue the script.
     wp_enqueue_script(
         'cwm-react-app',

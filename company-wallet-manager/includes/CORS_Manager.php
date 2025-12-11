@@ -77,10 +77,12 @@ class CORS_Manager {
 
                 $allowed_origins = $this->get_allowed_origins();
 
+                // Exact match
                 if ( in_array( $origin, $allowed_origins, true ) ) {
                         return true;
                 }
 
+                // Check domain matching for subdomains
                 $origin_domain = $this->get_registered_domain_from_origin( $origin );
                 if ( ! $origin_domain ) {
                         return false;
@@ -93,14 +95,17 @@ class CORS_Manager {
                         )
                 );
 
+                // Check if origin is from same domain (subdomain support)
                 foreach ( $site_domains as $domain ) {
-                        if ( $domain === $origin_domain ) {
+                        if ( $domain && $domain === $origin_domain ) {
                                 return true;
                         }
                 }
 
+                // Check against allowed origins
                 foreach ( $allowed_origins as $allowed_origin ) {
-                        if ( $origin_domain === $this->get_registered_domain_from_origin( $allowed_origin ) ) {
+                        $allowed_domain = $this->get_registered_domain_from_origin( $allowed_origin );
+                        if ( $allowed_domain && $origin_domain === $allowed_domain ) {
                                 return true;
                         }
                 }

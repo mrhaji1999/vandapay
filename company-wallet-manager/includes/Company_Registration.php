@@ -12,13 +12,13 @@ class Company_Registration {
         const RATE_LIMIT_WINDOW = 600; // 10 minutes.
         const RATE_LIMIT_MAX     = 3;
 
-        /**
-         * Process the incoming request and create a pending company record.
-         *
-         * @param \WP_REST_Request $request The REST request.
-         * @return \WP_REST_Response|WP_Error
-         */
-        public function register( $request ) {
+       /**
+        * Process the incoming request and create a pending company record.
+        *
+        * @param \WP_REST_Request $request The REST request.
+        * @return \WP_REST_Response|WP_Error
+        */
+       public function register( $request ) {
                 try {
                         $this->enforce_rate_limit();
                 } catch ( \RuntimeException $e ) {
@@ -46,20 +46,69 @@ class Company_Registration {
 
                 $post_id = $this->create_company_post( $user_id, $company_type, $data );
 
-                $this->notify_admins( $post_id, $data );
+               $this->notify_admins( $post_id, $data );
 
-                return rest_ensure_response(
-                        [
-                                'status'  => 'success',
-                                'message' => __( 'Your registration request has been submitted and awaits admin approval.', 'company-wallet-manager' ),
-                                'company' => [
-                                        'post_id'      => $post_id,
-                                        'wp_user_id'   => $user_id,
-                                        'company_type' => $company_type,
-                                ],
-                        ]
-                );
-        }
+               return rest_ensure_response(
+                       [
+                               'status'  => 'success',
+                               'message' => __( 'Your registration request has been submitted and awaits admin approval.', 'company-wallet-manager' ),
+                               'company' => [
+                                       'post_id'      => $post_id,
+                                       'wp_user_id'   => $user_id,
+                                       'company_type' => $company_type,
+                               ],
+                       ]
+               );
+       }
+
+       /**
+        * Create a company entry initiated by an administrator (no rate limit).
+        *
+        * @param array $payload Raw payload provided by the admin UI.
+        * @param array $args    Optional arguments (e.g. post_status).
+        *
+        * @return array|WP_Error
+        */
+       public function register_from_admin( array $payload, array $args = [] ) {
+               $company_type = isset( $payload['company_type'] ) ? strtolower( $payload['company_type'] ) : 'legal';
+
+               $data = $this->sanitize_payload( $payload, $company_type );
+
+               if ( empty( $data['password'] ) ) {
+                       $data['password'] = wp_generate_password( 12 );
+               }
+
+               $validation = $this->validate_payload( $data, $company_type );
+               if ( is_wp_error( $validation ) ) {
+                       return $validation;
+               }
+
+               $user_id = $this->create_or_update_user( $data );
+               if ( is_wp_error( $user_id ) ) {
+                       return $user_id;
+               }
+
+               $post_id = $this->create_company_post( $user_id, $company_type, $data );
+
+               if ( ! empty( $args['status'] ) ) {
+                       $status = sanitize_key( $args['status'] );
+                       wp_update_post(
+                               [
+                                       'ID'          => $post_id,
+                                       'post_status' => $status,
+                               ]
+                       );
+               }
+
+               return [
+                       'status'  => 'success',
+                       'company' => [
+                               'post_id'      => $post_id,
+                               'wp_user_id'   => $user_id,
+                               'company_type' => $company_type,
+                       ],
+               ];
+       }
 
         /**
          * Normalize incoming parameters.
