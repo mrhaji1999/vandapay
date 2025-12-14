@@ -43,7 +43,8 @@ export const apiClient = axios.create({
   baseURL: apiBaseUrl,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  withCredentials: true
 });
 
 apiClient.interceptors.request.use((config) => {
@@ -55,6 +56,10 @@ apiClient.interceptors.request.use((config) => {
   if (token) {
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Remove Content-Type header for FormData to let browser set it with boundary
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
   }
   return config;
 });

@@ -120,11 +120,13 @@ class Category_Manager {
                         KEY company_id (company_id),
                         KEY category_id (category_id)
                 ) {$charset_collate};",
-            $this->company_caps_table => "CREATE TABLE {$this->company_caps_table} (
+            $this->company_caps_table => "CREATE TABLE IF NOT EXISTS {$this->company_caps_table} (
                         id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                         company_id BIGINT(20) UNSIGNED NOT NULL,
                         category_id BIGINT(20) UNSIGNED NOT NULL,
                         spending_cap DECIMAL(20,6) NOT NULL DEFAULT 0,
+                        limit_type VARCHAR(20) DEFAULT 'amount',
+                        limit_value DECIMAL(20,6) DEFAULT NULL,
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                         PRIMARY KEY (id),
@@ -139,7 +141,38 @@ class Category_Manager {
             }
         }
 
+        // Check and add missing columns to existing tables
+        $this->maybe_add_missing_columns();
+
         self::$tables_verified = true;
+    }
+
+    /**
+     * Add missing columns to existing tables if they don't exist.
+     */
+    protected function maybe_add_missing_columns() {
+        global $wpdb;
+
+        // Check if company_caps_table exists and has required columns
+        $table_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $this->company_caps_table ) ) === $this->company_caps_table;
+        
+        if ( ! $table_exists ) {
+            return;
+        }
+
+        // Get existing columns
+        $columns = $wpdb->get_results( "DESCRIBE {$this->company_caps_table}", ARRAY_A );
+        $column_names = array_column( $columns, 'Field' );
+
+        // Add limit_type if missing
+        if ( ! in_array( 'limit_type', $column_names, true ) ) {
+            $wpdb->query( "ALTER TABLE {$this->company_caps_table} ADD COLUMN limit_type VARCHAR(20) DEFAULT 'amount' AFTER spending_cap" );
+        }
+
+        // Add limit_value if missing
+        if ( ! in_array( 'limit_value', $column_names, true ) ) {
+            $wpdb->query( "ALTER TABLE {$this->company_caps_table} ADD COLUMN limit_value DECIMAL(20,6) DEFAULT NULL AFTER limit_type" );
+        }
     }
 
     /**
@@ -608,7 +641,7 @@ class Category_Manager {
         $company_id = absint( $company_id );
 
         $sql = $wpdb->prepare(
-            "SELECT c.id, c.name, c.slug, caps.spending_cap FROM {$this->categories_table} c\n             LEFT JOIN {$this->company_caps_table} caps ON caps.category_id = c.id AND caps.company_id = %d\n             ORDER BY c.name ASC",
+            "SELECT c.id, c.name, c.slug, caps.spending_cap, caps.limit_type, caps.limit_value FROM {$this->categories_table} c\n             LEFT JOIN {$this->company_caps_table} caps ON caps.category_id = c.id AND caps.company_id = %d\n             ORDER BY c.name ASC",
             $company_id
         );
 
@@ -621,10 +654,85 @@ class Category_Manager {
                     'category_name' => $row['name'],
                     'slug'          => $row['slug'],
                     'cap'           => isset( $row['spending_cap'] ) ? (float) $row['spending_cap'] : null,
+                    'limit_type'    => isset( $row['limit_type'] ) ? $row['limit_type'] : null,
+                    'limit_value'   => isset( $row['limit_value'] ) ? (float) $row['limit_value'] : null,
                 ];
             },
             $rows ?: []
         );
+    }
+
+    /**
+     * Set a single company category cap.
+     *
+     * @param int    $company_id  Company identifier.
+     * @param int    $category_id Category identifier.
+     * @param string $limit_type  'percentage' or 'amount'.
+     * @param float  $limit_value Limit value.
+     * @return bool
+     */
+    public function set_company_category_cap( $company_id, $category_id, $limit_type, $limit_value ) {
+        global $wpdb;
+
+        $company_id = absint( $company_id );
+        $category_id = absint( $category_id );
+        $limit_type = sanitize_text_field( $limit_type );
+        $limit_value = floatval( $limit_value );
+
+        if ( $company_id <= 0 || $category_id <= 0 ) {
+            return false;
+        }
+
+        if ( ! in_array( $limit_type, [ 'percentage', 'amount' ], true ) ) {
+            return false;
+        }
+
+        // Check if cap exists
+        $existing = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$this->company_caps_table} WHERE company_id = %d AND category_id = %d",
+            $company_id,
+            $category_id
+        ) );
+
+        $data = [
+            'company_id'  => $company_id,
+            'category_id' => $category_id,
+            'limit_type'  => $limit_type,
+            'limit_value' => $limit_value,
+        ];
+
+        $format = [ '%d', '%d', '%s', '%f' ];
+
+        if ( $existing ) {
+            $result = $wpdb->update(
+                $this->company_caps_table,
+                $data,
+                [ 'id' => $existing ],
+                $format,
+                [ '%d' ]
+            );
+            
+            // wpdb->update returns false on error, or number of rows affected (0 if no change)
+            if ( false === $result ) {
+                // Check for actual database error
+                if ( ! empty( $wpdb->last_error ) ) {
+                    return false;
+                }
+            }
+            // Even if 0 rows affected (data unchanged), it's still a success
+        } else {
+            $result = $wpdb->insert(
+                $this->company_caps_table,
+                $data,
+                $format
+            );
+            
+            if ( false === $result ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

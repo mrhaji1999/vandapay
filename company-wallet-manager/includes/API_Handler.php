@@ -76,6 +76,7 @@ class API_Handler {
      * Configure CORS headers for the plugin's REST namespace.
      */
     public function configure_cors_support() {
+        // CORS is handled by CORS_Manager, but we keep this for backward compatibility
         add_filter( 'rest_pre_serve_request', array( $this, 'send_cors_headers' ), 0, 4 );
     }
 
@@ -103,9 +104,9 @@ class API_Handler {
         $sanitized_origin = $origin && in_array( $origin, $allowed_origins, true ) ? esc_url_raw( $origin ) : esc_url_raw( get_site_url() );
 
         header( 'Access-Control-Allow-Origin: ' . $sanitized_origin );
-        header( 'Access-Control-Allow-Methods: GET, POST, OPTIONS' );
+        header( 'Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS' );
         header( 'Access-Control-Allow-Credentials: true' );
-        header( 'Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce' );
+        header( 'Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce, Content-Disposition' );
 
         if ( 'OPTIONS' === $request->get_method() ) {
             status_header( 200 );
@@ -123,6 +124,22 @@ class API_Handler {
      */
     protected function get_allowed_cors_origins() {
         $origins = array( get_site_url() );
+
+        // Add panel subdomain if main domain is configured
+        $site_url = get_site_url();
+        $parsed = wp_parse_url( $site_url );
+        if ( ! empty( $parsed['host'] ) ) {
+            $host = $parsed['host'];
+            // If main domain is like mr.vandapay.com, add panel.vandapay.com
+            if ( strpos( $host, 'mr.' ) === 0 ) {
+                $panel_host = str_replace( 'mr.', 'panel.', $host );
+                $panel_url = $parsed['scheme'] . '://' . $panel_host;
+                if ( ! empty( $parsed['port'] ) ) {
+                    $panel_url .= ':' . $parsed['port'];
+                }
+                $origins[] = $panel_url;
+            }
+        }
 
         /**
          * Filter the allowed CORS origins for Company Wallet Manager REST requests.
@@ -656,6 +673,42 @@ class API_Handler {
             ],
         ] );
 
+        // Company credit management
+        register_rest_route( $this->namespace, '/company/credit', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_company_credit' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+        ] );
+
+        // Company employee credit allocation via Excel
+        register_rest_route( $this->namespace, '/company/employees/allocate-credit', [
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'allocate_employee_credit_from_excel' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+        ] );
+
+        // Company employee import via CSV
+        register_rest_route( $this->namespace, '/company/employees/import', [
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'import_company_employees' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+        ] );
+
+        // Company employees list
+        register_rest_route( $this->namespace, '/company/employees', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_company_employees' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+        ] );
+
         $this->register_admin_routes();
 
         $this->category_controller->register_routes();
@@ -702,6 +755,14 @@ class API_Handler {
             [
                 'methods'             => 'DELETE',
                 'callback'            => [ $this, 'admin_delete_company' ],
+                'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        register_rest_route( $this->namespace, '/admin/companies/(?P<id>\d+)/credit', [
+            [
+                'methods'             => 'PUT',
+                'callback'            => [ $this, 'admin_update_company_credit' ],
                 'permission_callback' => [ $this, 'admin_permission_check' ],
             ],
         ] );
@@ -822,6 +883,43 @@ class API_Handler {
                 'methods'             => 'GET',
                 'callback'            => [ $this, 'get_admin_product_reports' ],
                 'permission_callback' => [ $this, 'admin_permission_check' ],
+            ],
+        ] );
+
+        // Company category caps management
+        register_rest_route( $this->namespace, '/company/category-caps', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_company_category_caps' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'update_company_category_caps' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+        ] );
+
+        // Company reports - top merchants
+        register_rest_route( $this->namespace, '/company/reports/top-merchants', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_company_top_merchants' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+        ] );
+
+        // Company employee online purchase access
+        register_rest_route( $this->namespace, '/company/employees/(?P<employee_id>\d+)/online-access', [
+            [
+                'methods'             => 'GET',
+                'callback'            => [ $this, 'get_employee_online_access' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
+            ],
+            [
+                'methods'             => 'POST',
+                'callback'            => [ $this, 'update_employee_online_access' ],
+                'permission_callback' => [ $this, 'company_permission_check' ],
             ],
         ] );
 
@@ -1218,21 +1316,158 @@ class API_Handler {
      * @return WP_REST_Response|WP_Error
      */
     public function get_merchant_products( WP_REST_Request $request ) {
+        global $wpdb;
         $merchant_id = (int) $request->get_param( 'id' );
 
         if ( ! $merchant_id ) {
             return new WP_Error( 'cwm_invalid_merchant', __( 'شناسه پذیرنده معتبر نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
         }
 
-        $products = get_user_meta( $merchant_id, '_cwm_products', true );
-        $products = is_array( $products ) ? $products : [];
+        $products_table = $wpdb->prefix . 'cwm_products';
+        $categories_table = $wpdb->prefix . 'cwm_product_categories';
+        
+        // Ensure products table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$products_table}'" );
+        if ( $products_table !== $table_exists ) {
+            // Table doesn't exist, create it
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset_collate = $wpdb->get_charset_collate();
+            $sql = "CREATE TABLE {$products_table} (
+                    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                    product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                    name VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                    image VARCHAR(500) NULL,
+                    stock_quantity INT(11) NOT NULL DEFAULT 0,
+                    online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    KEY merchant_id (merchant_id),
+                    KEY product_category_id (product_category_id),
+                    KEY online_purchase_enabled (online_purchase_enabled),
+                    KEY is_featured (is_featured),
+                    KEY status (status)
+            ) {$charset_collate};";
+            dbDelta( $sql );
+        } else {
+            // Table exists, ensure status column exists
+            $status_column = $wpdb->get_results( "SHOW COLUMNS FROM {$products_table} LIKE 'status'" );
+            if ( empty( $status_column ) ) {
+                $wpdb->query( "ALTER TABLE {$products_table} ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'active' AFTER is_featured" );
+                $wpdb->query( "ALTER TABLE {$products_table} ADD KEY status (status)" );
+                // Update existing products with NULL or empty status to 'active'
+                $wpdb->query( "UPDATE {$products_table} SET status = 'active' WHERE status IS NULL OR status = ''" );
+            } else {
+                // Ensure existing products with NULL or empty status are set to 'active'
+                $wpdb->query( $wpdb->prepare( "UPDATE {$products_table} SET status = 'active' WHERE (status IS NULL OR status = '') AND merchant_id = %d", $merchant_id ) );
+            }
+        }
 
-        return rest_ensure_response(
-            [
-                'status' => 'success',
-                'data'   => $products,
-            ]
+        // Update any products with NULL or empty status to 'active' before querying
+        $wpdb->query( $wpdb->prepare( "UPDATE {$products_table} SET status = 'active' WHERE (status IS NULL OR status = '') AND merchant_id = %d", $merchant_id ) );
+
+        // Check if categories table exists
+        $categories_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$categories_table}'" );
+        
+        // Build the query - always use simple query first to ensure we get products
+        // Then enhance with category info if categories table exists
+        $products = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$products_table} WHERE merchant_id = %d AND status = %s ORDER BY created_at DESC",
+                $merchant_id,
+                'active'
+            ),
+            ARRAY_A
         );
+        
+        // If we have products and categories table exists, add category info
+        if ( ! empty( $products ) && $categories_table === $categories_table_exists ) {
+            // Get category info for products that have category_id
+            $category_ids = array_filter( array_column( $products, 'product_category_id' ) );
+            if ( ! empty( $category_ids ) ) {
+                $category_ids_placeholders = implode( ',', array_fill( 0, count( $category_ids ), '%d' ) );
+                $categories = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT id, name, slug FROM {$categories_table} WHERE id IN ({$category_ids_placeholders})",
+                        ...$category_ids
+                    ),
+                    ARRAY_A
+                );
+                
+                // Create a map of category_id => category info
+                $category_map = [];
+                foreach ( $categories as $cat ) {
+                    $category_map[ $cat['id'] ] = [
+                        'name' => $cat['name'],
+                        'slug' => $cat['slug']
+                    ];
+                }
+                
+                // Add category info to products
+                foreach ( $products as &$product ) {
+                    $cat_id = $product['product_category_id'] ?? null;
+                    if ( $cat_id && isset( $category_map[ $cat_id ] ) ) {
+                        $product['category_name'] = $category_map[ $cat_id ]['name'];
+                        $product['category_slug'] = $category_map[ $cat_id ]['slug'];
+                    } else {
+                        $product['category_name'] = null;
+                        $product['category_slug'] = null;
+                    }
+                }
+                unset( $product );
+            } else {
+                // No categories, add null fields
+                foreach ( $products as &$product ) {
+                    $product['category_name'] = null;
+                    $product['category_slug'] = null;
+                }
+                unset( $product );
+            }
+        } elseif ( ! empty( $products ) ) {
+            // Categories table doesn't exist, add null fields
+            foreach ( $products as &$product ) {
+                $product['category_name'] = null;
+                $product['category_slug'] = null;
+            }
+            unset( $product );
+        }
+
+        // Ensure products is an array
+        $products_array = is_array( $products ) ? $products : [];
+        
+        error_log( sprintf( 'CWM Debug get_merchant_products: Returning %d products for merchant_id %d', count( $products_array ), $merchant_id ) );
+        
+        $response_data = [
+            'status' => 'success',
+            'data'   => array_map( function( $product ) {
+                return [
+                    'id'                      => (int) $product['id'],
+                    'merchant_id'             => (int) $product['merchant_id'],
+                    'product_category_id'     => $product['product_category_id'] ? (int) $product['product_category_id'] : null,
+                    'category_name'           => $product['category_name'] ?? null,
+                    'category_slug'           => $product['category_slug'] ?? null,
+                    'name'                    => $product['name'],
+                    'description'             => $product['description'] ?? '',
+                    'price'                   => (float) $product['price'],
+                    'image'                   => $product['image'] ?? null,
+                    'stock_quantity'          => (int) $product['stock_quantity'],
+                    'online_purchase_enabled' => (bool) $product['online_purchase_enabled'],
+                    'is_featured'             => isset( $product['is_featured'] ) ? (bool) $product['is_featured'] : false,
+                    'status'                  => $product['status'],
+                    'created_at'              => $product['created_at'],
+                    'updated_at'              => $product['updated_at'],
+                ];
+            }, $products_array ),
+        ];
+        
+        error_log( sprintf( 'CWM Debug get_merchant_products: Response data structure - status: %s, data count: %d', $response_data['status'], count( $response_data['data'] ) ) );
+        
+        return rest_ensure_response( $response_data );
     }
 
     /**
@@ -1782,6 +2017,7 @@ class API_Handler {
                 'economic_code'  => get_post_meta( $post->ID, '_cwm_company_economic_code', true ),
                 'national_id'    => get_post_meta( $post->ID, '_cwm_company_national_id', true ),
                 'user_id'        => get_post_meta( $post->ID, '_cwm_company_user_id', true ),
+                'credit_amount'  => get_post_meta( $post->ID, '_cwm_company_credit', true ),
                 'created_at'     => $post->post_date,
             ];
         }
@@ -1849,6 +2085,7 @@ class API_Handler {
             '_cwm_company_type'          => 'company_type',
             '_cwm_company_economic_code' => 'economic_code',
             '_cwm_company_national_id'   => 'national_id',
+            '_cwm_company_credit'        => 'credit_amount',
         ];
 
         foreach ( $meta_map as $meta_key => $param ) {
@@ -1890,6 +2127,67 @@ class API_Handler {
                 'message' => __( 'اطلاعات شرکت به‌روزرسانی شد.', 'company-wallet-manager' ),
             ]
         );
+    }
+
+    /**
+     * Admin endpoint: update company credit.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function admin_update_company_credit( WP_REST_Request $request ) {
+        $company_id = (int) $request->get_param( 'id' );
+        $post       = get_post( $company_id );
+
+        if ( ! $post || 'cwm_company' !== $post->post_type ) {
+            return new WP_Error( 'cwm_invalid_company', __( 'شرکت موردنظر یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $payload = $request->get_json_params();
+        $credit_amount = isset( $payload['credit_amount'] ) ? floatval( $payload['credit_amount'] ) : null;
+        $action = isset( $payload['action'] ) ? sanitize_text_field( $payload['action'] ) : 'set'; // 'set' or 'add'
+
+        if ( $credit_amount === null ) {
+            return new WP_Error( 'cwm_invalid_credit', __( 'مبلغ اعتبار نامعتبر است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $user_id = (int) get_post_meta( $company_id, '_cwm_company_user_id', true );
+        if ( ! $user_id ) {
+            return new WP_Error( 'cwm_no_user', __( 'کاربر شرکت یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $wallet_system = new Wallet_System();
+        $current_balance = $wallet_system->get_balance( $user_id );
+        $current_credit = get_post_meta( $company_id, '_cwm_company_credit', true );
+        $current_credit = $current_credit ? floatval( $current_credit ) : 0;
+
+        if ( $action === 'add' ) {
+            // Add credit to existing
+            $new_credit = $current_credit + $credit_amount;
+            $balance_diff = $credit_amount;
+        } else {
+            // Set credit to specific amount
+            $new_credit = $credit_amount;
+            $balance_diff = $credit_amount - $current_credit;
+        }
+
+        // Update company credit meta
+        update_post_meta( $company_id, '_cwm_company_credit', $new_credit );
+
+        // Update wallet balance
+        if ( $balance_diff != 0 ) {
+            $wallet_system->update_balance( $user_id, $balance_diff );
+        }
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'اعتبار شرکت به‌روزرسانی شد.', 'company-wallet-manager' ),
+            'data'    => [
+                'company_id'     => $company_id,
+                'credit_amount'  => $new_credit,
+                'wallet_balance' => $wallet_system->get_balance( $user_id ),
+            ],
+        ] );
     }
 
     /**
@@ -1954,6 +2252,346 @@ class API_Handler {
         }
 
         return $this->respond_with_format( $request, $rows, [ 'id', 'name', 'email', 'balance', 'national_id', 'phone', 'category_limits' ], 'company-employees.csv' );
+    }
+
+    /**
+     * Company endpoint: get list of employees for the company.
+     */
+    public function get_company_employees( WP_REST_Request $request ) {
+        $user = wp_get_current_user();
+        $user_id = $user->ID;
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user_id,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return rest_ensure_response( [
+                'status' => 'success',
+                'data'   => [],
+            ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
+
+        $employees = get_users(
+            [
+                'meta_key'   => '_cwm_company_id',
+                'meta_value' => $company_id,
+                'number'     => 500,
+            ]
+        );
+
+        $wallet = new Wallet_System();
+        $rows   = [];
+
+        $employee_ids = wp_list_pluck( $employees, 'ID' );
+        $limits_map   = $this->category_manager->get_limits_for_employees( $employee_ids );
+
+        foreach ( $employees as $employee ) {
+            $limits = isset( $limits_map[ $employee->ID ] ) ? $limits_map[ $employee->ID ] : [];
+
+            $rows[] = [
+                'id'        => $employee->ID,
+                'name'      => $employee->display_name,
+                'email'     => $employee->user_email,
+                'balance'   => $wallet->get_balance( $employee->ID ),
+                'national_id' => get_user_meta( $employee->ID, 'national_id', true ),
+                'phone'     => get_user_meta( $employee->ID, 'mobile', true ),
+                'category_limits' => $limits,
+            ];
+        }
+
+        return $this->respond_with_format( $request, $rows, [ 'id', 'name', 'email', 'balance', 'national_id', 'phone', 'category_limits' ], 'company-employees.csv' );
+    }
+
+    /**
+     * Company endpoint: import or update employees for the company via CSV upload.
+     */
+    public function import_company_employees( WP_REST_Request $request ) {
+        $user = wp_get_current_user();
+        $user_id = $user->ID;
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user_id,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return new WP_Error( 'cwm_company_not_found', __( 'شرکت یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
+
+        $files = $request->get_file_params();
+        $file  = isset( $files['file'] ) ? $files['file'] : ( $files['csv'] ?? null );
+
+        if ( ! $file ) {
+            return new WP_Error( 'cwm_missing_csv', __( 'فایل CSV کارکنان ارسال نشده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        if ( ! empty( $file['error'] ) ) {
+            return new WP_Error(
+                'cwm_csv_upload_error',
+                sprintf( __( 'خطا در بارگذاری فایل (کد %d).', 'company-wallet-manager' ), (int) $file['error'] ),
+                [ 'status' => 400 ]
+            );
+        }
+
+        $tmp_name = isset( $file['tmp_name'] ) ? $file['tmp_name'] : null;
+
+        if ( ! $tmp_name || ! file_exists( $tmp_name ) || ! is_readable( $tmp_name ) ) {
+            return new WP_Error( 'cwm_csv_unreadable', __( 'امکان خواندن فایل CSV وجود ندارد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $handle = fopen( $tmp_name, 'r' );
+
+        if ( false === $handle ) {
+            return new WP_Error( 'cwm_csv_open_failed', __( 'فایل CSV قابل باز شدن نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $first_line = fgets( $handle );
+        if ( false === $first_line ) {
+            fclose( $handle );
+            return new WP_Error( 'cwm_csv_empty', __( 'فایل CSV خالی است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $delimiter = $this->detect_csv_delimiter( $first_line );
+        rewind( $handle );
+
+        $header_row = fgetcsv( $handle, 0, $delimiter );
+        if ( false === $header_row ) {
+            fclose( $handle );
+            return new WP_Error( 'cwm_csv_header_missing', __( 'ردیف سرستون CSV قابل خواندن نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $normalized_headers = $this->normalize_csv_headers( $header_row );
+
+        // حداقل یکی از شناسه‌ها باید باشد: کد ملی یا ایمیل یا شماره همراه
+        if (
+            ! in_array( 'email', $normalized_headers, true )
+            && ! in_array( 'national_id', $normalized_headers, true )
+            && ! in_array( 'mobile', $normalized_headers, true )
+        ) {
+            fclose( $handle );
+            return new WP_Error( 'cwm_csv_missing_identifiers', __( 'فایل باید حداقل شامل یکی از ستون‌های کد ملی، ایمیل یا شماره همراه باشد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $wallet = new Wallet_System();
+        $logger = new Transaction_Logger();
+
+        // Optional bulk credit amount to add to every processed employee
+        $bulk_amount_param = $request->get_param( 'amount' );
+        $bulk_credit_amount = $this->parse_decimal_value( $bulk_amount_param );
+        if ( null !== $bulk_credit_amount && $bulk_credit_amount < 0 ) {
+            return new WP_Error( 'cwm_invalid_amount', __( 'مبلغ اعتباردهی نمی‌تواند منفی باشد.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $results = [
+            'processed'          => 0,
+            'created'            => 0,
+            'updated'            => 0,
+            'balances_adjusted'  => 0,
+            'errors'             => [],
+        ];
+
+        $row_number = 1; // header already consumed.
+
+        while ( ( $row = fgetcsv( $handle, 0, $delimiter ) ) !== false ) {
+            $row_number++;
+
+            if ( empty( array_filter( $row, 'strlen' ) ) ) {
+                continue;
+            }
+
+            $results['processed']++;
+
+            $employee_data = $this->map_csv_row_to_employee( $row, $normalized_headers );
+
+            if ( empty( $employee_data['email'] ) && empty( $employee_data['national_id'] ) && empty( $employee_data['mobile'] ) ) {
+                $results['errors'][] = [
+                    'row'     => $row_number,
+                    'message' => __( 'ستون کد ملی، ایمیل یا شماره همراه برای این ردیف خالی است.', 'company-wallet-manager' ),
+                ];
+                continue;
+            }
+
+            $email       = isset( $employee_data['email'] ) ? sanitize_email( $employee_data['email'] ) : '';
+            $national_id = isset( $employee_data['national_id'] ) ? sanitize_text_field( $employee_data['national_id'] ) : '';
+            $mobile      = isset( $employee_data['mobile'] ) ? sanitize_text_field( $employee_data['mobile'] ) : '';
+            $name        = isset( $employee_data['name'] ) ? sanitize_text_field( $employee_data['name'] ) : '';
+
+            if ( $email && ! is_email( $email ) ) {
+                $results['errors'][] = [
+                    'row'     => $row_number,
+                    'message' => __( 'فرمت ایمیل معتبر نیست.', 'company-wallet-manager' ),
+                ];
+                continue;
+            }
+
+            $user = $this->find_employee_user( $email, $national_id, $mobile );
+
+            $created = false;
+
+            if ( ! $user ) {
+                $user_id = $this->create_employee_user( $email, $name, $mobile, $national_id );
+
+                if ( is_wp_error( $user_id ) ) {
+                    $results['errors'][] = [
+                        'row'     => $row_number,
+                        'message' => $user_id->get_error_message(),
+                    ];
+                    continue;
+                }
+
+                $user    = get_user_by( 'id', $user_id );
+                $created = true;
+                $results['created']++;
+            } else {
+                $update_args = [ 'ID' => $user->ID ];
+                $has_updates = false;
+
+                if ( $email && strtolower( $user->user_email ) !== strtolower( $email ) ) {
+                    $update_args['user_email'] = $email;
+                    $has_updates               = true;
+                }
+
+                if ( $name && $user->display_name !== $name ) {
+                    $update_args['display_name'] = $name;
+                    $has_updates                 = true;
+                }
+
+                if ( $has_updates ) {
+                    $updated = wp_update_user( $update_args );
+
+                    if ( is_wp_error( $updated ) ) {
+                        $results['errors'][] = [
+                            'row'     => $row_number,
+                            'message' => $updated->get_error_message(),
+                        ];
+                        continue;
+                    }
+                }
+
+                $results['updated']++;
+            }
+
+            if ( ! $user ) {
+                // Should never happen but guard to avoid notices.
+                $results['errors'][] = [
+                    'row'     => $row_number,
+                    'message' => __( 'امکان ایجاد یا به‌روزرسانی کاربر وجود ندارد.', 'company-wallet-manager' ),
+                ];
+                continue;
+            }
+
+            $user_id = $user->ID;
+
+            // Ensure the employee role is assigned.
+            if ( ! in_array( 'employee', (array) $user->roles, true ) ) {
+                $user->add_role( 'employee' );
+            }
+
+            update_user_meta( $user_id, '_cwm_company_id', $company_id );
+
+            if ( $national_id ) {
+                update_user_meta( $user_id, 'national_id', $national_id );
+            }
+
+            if ( $mobile ) {
+                update_user_meta( $user_id, 'mobile', $mobile );
+            }
+
+            if ( $name ) {
+                $this->maybe_update_user_name_fields( $user_id, $name );
+            }
+
+            // Apply optional bulk credit amount for each employee
+            if ( null !== $bulk_credit_amount && $bulk_credit_amount > 0 ) {
+                $credited = $wallet->update_balance( $user_id, $bulk_credit_amount );
+                if ( $credited ) {
+                    $results['balances_adjusted']++;
+                    $logger->log(
+                        'company_bulk_credit',
+                        $user_id, // company user id as sender
+                        $user_id, // employee user id as receiver
+                        $bulk_credit_amount,
+                        'completed',
+                        [
+                            'context'  => 'employee_import',
+                            'metadata' => [
+                                'company_id' => $company_id,
+                                'row'        => $row_number,
+                                'source'     => 'csv_upload',
+                                'mode'       => 'bulk_amount',
+                            ],
+                        ]
+                    );
+                } else {
+                    $results['errors'][] = [
+                        'row'     => $row_number,
+                        'message' => __( 'اعتباردهی گروهی به کیف پول با خطا مواجه شد.', 'company-wallet-manager' ),
+                    ];
+                }
+            }
+
+            if ( isset( $employee_data['balance'] ) && '' !== $employee_data['balance'] ) {
+                $target_balance = $this->parse_decimal_value( $employee_data['balance'] );
+
+                if ( null === $target_balance ) {
+                    $results['errors'][] = [
+                        'row'     => $row_number,
+                        'message' => __( 'مقدار موجودی معتبر نیست.', 'company-wallet-manager' ),
+                    ];
+                } else {
+                    $current_balance = $wallet->get_balance( $user_id );
+                    $delta           = $target_balance - $current_balance;
+
+                    if ( abs( $delta ) >= 0.01 ) {
+                        $updated_balance = $wallet->update_balance( $user_id, $delta );
+
+                        if ( $updated_balance ) {
+                            $results['balances_adjusted']++;
+                            $logger->log(
+                                'company_balance_adjustment',
+                                $user_id, // company user id as sender
+                                $user_id, // employee user id as receiver
+                                $delta,
+                                'completed',
+                                [
+                                    'context'  => 'employee_import',
+                                    'metadata' => [
+                                        'company_id'      => $company_id,
+                                        'row'             => $row_number,
+                                        'source'          => 'csv_upload',
+                                        'target_balance' => $target_balance,
+                                        'previous_balance' => $current_balance,
+                                    ],
+                                ]
+                            );
+                        } else {
+                            $results['errors'][] = [
+                                'row'     => $row_number,
+                                'message' => __( 'به‌روزرسانی موجودی با خطا مواجه شد.', 'company-wallet-manager' ),
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
+        fclose( $handle );
+
+        return rest_ensure_response( $results );
     }
 
     /**
@@ -2280,6 +2918,36 @@ class API_Handler {
 
         $products_table = $wpdb->prefix . 'cwm_products';
         $users_table    = $wpdb->users;
+        
+        // Ensure products table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$products_table}'" );
+        if ( $products_table !== $table_exists ) {
+            // Table doesn't exist, create it
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset_collate = $wpdb->get_charset_collate();
+            $sql = "CREATE TABLE {$products_table} (
+                    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                    product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                    name VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                    image VARCHAR(500) NULL,
+                    stock_quantity INT(11) NOT NULL DEFAULT 0,
+                    online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    KEY merchant_id (merchant_id),
+                    KEY product_category_id (product_category_id),
+                    KEY online_purchase_enabled (online_purchase_enabled),
+                    KEY is_featured (is_featured),
+                    KEY status (status)
+            ) {$charset_collate};";
+            dbDelta( $sql );
+        }
 
         $conditions = [];
         $params     = [];
@@ -2325,6 +2993,7 @@ class API_Handler {
                     'merchant_name'           => $row['merchant_name'],
                     'merchant_email'          => $row['merchant_email'],
                     'online_purchase_enabled' => (bool) $row['online_purchase_enabled'],
+                    'is_featured'             => isset( $row['is_featured'] ) ? (bool) $row['is_featured'] : false,
                     'product_category_id'     => isset( $row['product_category_id'] ) ? (int) $row['product_category_id'] : null,
                     'image'                   => $row['image'],
                     'created_at'              => $row['created_at'],
@@ -3405,9 +4074,27 @@ class API_Handler {
 
         try {
             $decoded = \Firebase\JWT\JWT::decode( $token, new \Firebase\JWT\Key( JWT_AUTH_SECRET_KEY, 'HS256' ) );
-            wp_set_current_user( $decoded->data->user->id );
+            $token_user_id = $decoded->data->user->id ?? 0;
+            
+            error_log( sprintf( 'CWM Debug validate_token: Token decoded, user_id from token = %d', $token_user_id ) );
+            
+            if ( ! $token_user_id || $token_user_id <= 0 ) {
+                return new \WP_Error( 'jwt_auth_invalid_token', 'User ID not found in token', array( 'status' => 403 ) );
+            }
+            
+            wp_set_current_user( $token_user_id );
+            
+            // Verify the user was set correctly
+            $current_user_id = get_current_user_id();
+            error_log( sprintf( 'CWM Debug validate_token: After wp_set_current_user, get_current_user_id() = %d', $current_user_id ) );
+            
+            if ( $current_user_id !== $token_user_id ) {
+                error_log( sprintf( 'CWM Debug validate_token: WARNING - user_id mismatch! Token has %d but get_current_user_id() returned %d', $token_user_id, $current_user_id ) );
+            }
+            
             return true;
         } catch ( \Exception $e ) {
+            error_log( sprintf( 'CWM Debug validate_token: Exception - %s', $e->getMessage() ) );
             return new \WP_Error( 'jwt_auth_invalid_token', $e->getMessage(), array( 'status' => 403 ) );
         }
     }
@@ -3512,6 +4199,54 @@ class API_Handler {
             }
         }
 
+        // If no employee-specific limit exists, check company category caps
+        if ( null === $entry ) {
+            $company_id = (int) get_user_meta( $employee_id, '_cwm_company_id', true );
+            error_log( "build_payment_context - Employee $employee_id, Company ID from meta: $company_id, Category ID: $category_id" );
+            
+            if ( $company_id > 0 ) {
+                $company_caps = $this->category_manager->get_company_category_caps( $company_id );
+                error_log( "build_payment_context - Found " . count( $company_caps ) . " company caps for company $company_id" );
+                
+                foreach ( $company_caps as $cap ) {
+                    if ( (int) $cap['category_id'] === (int) $category_id ) {
+                        error_log( "build_payment_context - Found matching cap: category_id={$cap['category_id']}, limit_type={$cap['limit_type']}, limit_value={$cap['limit_value']}" );
+                        
+                        // Only use amount-type caps as fallback (percentage would need employee balance)
+                        // Check both limit_value and cap (for backward compatibility)
+                        $limit_value = isset( $cap['limit_value'] ) ? $cap['limit_value'] : null;
+                        $cap_value = null;
+                        
+                        if ( $limit_value !== null && $limit_value > 0 ) {
+                            $cap_value = (float) $limit_value;
+                        } elseif ( isset( $cap['cap'] ) && $cap['cap'] > 0 ) {
+                            $cap_value = (float) $cap['cap'];
+                        }
+                        
+                        error_log( "build_payment_context - Cap value calculation: limit_value={$limit_value}, cap={$cap['cap']}, final_cap_value={$cap_value}" );
+                        
+                        if ( $cap['limit_type'] === 'amount' && $cap_value !== null && $cap_value > 0 ) {
+                            $entry = [
+                                'category_id' => (int) $cap['category_id'],
+                                'limit' => $cap_value,
+                                'spent' => 0.0,
+                            ];
+                            error_log( "build_payment_context - Using company cap as limit: " . $entry['limit'] );
+                            break;
+                        } else {
+                            error_log( "build_payment_context - Cap not usable: limit_type={$cap['limit_type']}, limit_value={$cap['limit_value']}" );
+                        }
+                    }
+                }
+                
+                if ( null === $entry ) {
+                    error_log( "build_payment_context - No matching company cap found for category $category_id" );
+                }
+            } else {
+                error_log( "build_payment_context - No company ID found for employee $employee_id" );
+            }
+        }
+
         $limit_defined = null !== $entry;
         $limit_amount  = $entry ? (float) $entry['limit'] : 0.0;
         $spent_amount  = $entry ? (float) $entry['spent'] : 0.0;
@@ -3576,13 +4311,22 @@ class API_Handler {
      * @return bool
      */
     public function merchant_permission_check( WP_REST_Request $request ) {
-        if ( is_wp_error( $this->validate_token( $request ) ) ) {
+        $token_validation = $this->validate_token( $request );
+        if ( is_wp_error( $token_validation ) ) {
+            error_log( sprintf( 'CWM Debug merchant_permission_check: Token validation failed - %s', $token_validation->get_error_message() ) );
             return false;
         }
 
         $user = wp_get_current_user();
+        $user_id = $user ? $user->ID : 0;
+        
+        error_log( sprintf( 'CWM Debug merchant_permission_check: user_id = %d, roles = %s', $user_id, implode( ', ', $user->roles ?? [] ) ) );
 
-        return $this->user_has_role( $user, 'merchant' ) || $this->user_has_role( $user, 'administrator' ) || user_can( $user, 'manage_wallets' );
+        $has_permission = $this->user_has_role( $user, 'merchant' ) || $this->user_has_role( $user, 'administrator' ) || user_can( $user, 'manage_wallets' );
+        
+        error_log( sprintf( 'CWM Debug merchant_permission_check: has_permission = %s', $has_permission ? 'true' : 'false' ) );
+        
+        return $has_permission;
     }
 
     /**
@@ -3604,11 +4348,23 @@ class API_Handler {
      * @return bool
      */
     public function employee_permission_check( WP_REST_Request $request ) {
-        if ( is_wp_error( $this->validate_token( $request ) ) ) {
+        $token_validation = $this->validate_token( $request );
+        if ( is_wp_error( $token_validation ) ) {
+            error_log( sprintf( 'CWM Debug employee_permission_check: Token validation failed - %s', $token_validation->get_error_message() ) );
             return false;
         }
 
-        return $this->user_has_role( wp_get_current_user(), 'employee' );
+        $user = wp_get_current_user();
+        $user_id = $user ? $user->ID : 0;
+        $has_role = $this->user_has_role( $user, 'employee' );
+        
+        error_log( sprintf( 'CWM Debug employee_permission_check: user_id=%d, has_role=%s, roles=%s', 
+            $user_id, 
+            $has_role ? 'true' : 'false',
+            implode( ', ', $user->roles ?? [] )
+        ) );
+
+        return $has_role;
     }
 
     /**
@@ -3766,22 +4522,190 @@ class API_Handler {
     public function list_merchant_products( WP_REST_Request $request ) {
         global $wpdb;
         $user_id = get_current_user_id();
+        
+        // Debug: Log user_id for troubleshooting
+        error_log( sprintf( 'CWM Debug list_merchant_products: user_id = %d', $user_id ) );
+        
+        // Validate user_id
+        if ( ! $user_id || $user_id <= 0 ) {
+            error_log( 'CWM Debug list_merchant_products: Invalid user_id, returning error' );
+            return new WP_Error( 'cwm_invalid_user', __( 'کاربر معتبر نیست.', 'company-wallet-manager' ), [ 'status' => 401 ] );
+        }
+        
         $products_table = $wpdb->prefix . 'cwm_products';
         $categories_table = $wpdb->prefix . 'cwm_product_categories';
+        
+        // Ensure products table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$products_table}'" );
+        if ( $products_table !== $table_exists ) {
+            // Table doesn't exist, create it
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset_collate = $wpdb->get_charset_collate();
+            $sql = "CREATE TABLE {$products_table} (
+                    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                    product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                    name VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                    image VARCHAR(500) NULL,
+                    stock_quantity INT(11) NOT NULL DEFAULT 0,
+                    online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    KEY merchant_id (merchant_id),
+                    KEY product_category_id (product_category_id),
+                    KEY online_purchase_enabled (online_purchase_enabled),
+                    KEY is_featured (is_featured),
+                    KEY status (status)
+            ) {$charset_collate};";
+            dbDelta( $sql );
+        } else {
+            // Table exists, ensure status column exists
+            $status_column = $wpdb->get_results( "SHOW COLUMNS FROM {$products_table} LIKE 'status'" );
+            if ( empty( $status_column ) ) {
+                $wpdb->query( "ALTER TABLE {$products_table} ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'active' AFTER is_featured" );
+                $wpdb->query( "ALTER TABLE {$products_table} ADD KEY status (status)" );
+                // Update existing products with NULL or empty status to 'active'
+                $wpdb->query( "UPDATE {$products_table} SET status = 'active' WHERE status IS NULL OR status = ''" );
+            } else {
+                // Ensure existing products with NULL or empty status are set to 'active'
+                $wpdb->query( $wpdb->prepare( "UPDATE {$products_table} SET status = 'active' WHERE (status IS NULL OR status = '') AND merchant_id = %d", $user_id ) );
+            }
+        }
 
+        // Update any products with NULL or empty status to 'active' before querying
+        $wpdb->query( $wpdb->prepare( "UPDATE {$products_table} SET status = 'active' WHERE (status IS NULL OR status = '') AND merchant_id = %d", $user_id ) );
+
+        // Debug: Check total products for this merchant_id
+        $total_products = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$products_table} WHERE merchant_id = %d", $user_id ) );
+        error_log( sprintf( 'CWM Debug list_merchant_products: Total products for merchant_id %d = %d', $user_id, $total_products ) );
+        
+        // Debug: Check products with active status
+        $active_products = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$products_table} WHERE merchant_id = %d AND status = %s", $user_id, 'active' ) );
+        error_log( sprintf( 'CWM Debug list_merchant_products: Active products for merchant_id %d = %d', $user_id, $active_products ) );
+        
+        // Debug: Check user_id value
+        error_log( sprintf( 'CWM Debug list_merchant_products: user_id = %d, get_current_user_id() = %d', $user_id, get_current_user_id() ) );
+
+        // Check if categories table exists
+        $categories_table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$categories_table}'" );
+        error_log( sprintf( 'CWM Debug list_merchant_products: Categories table exists: %s', $categories_table === $categories_table_exists ? 'yes' : 'no' ) );
+        
+        // Build the query - always use simple query first to ensure we get products
+        // Then enhance with category info if categories table exists
         $products = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT p.*, pc.name as category_name, pc.slug as category_slug 
-                FROM {$products_table} p 
-                LEFT JOIN {$categories_table} pc ON p.product_category_id = pc.id 
-                WHERE p.merchant_id = %d 
-                ORDER BY p.created_at DESC",
-                $user_id
+                "SELECT * FROM {$products_table} WHERE merchant_id = %d AND status = %s ORDER BY created_at DESC",
+                $user_id,
+                'active'
             ),
             ARRAY_A
         );
+        
+        error_log( sprintf( 'CWM Debug list_merchant_products: Simple query returned %d products for merchant_id %d', count( $products ), $user_id ) );
+        
+        // If we have products and categories table exists, add category info
+        if ( ! empty( $products ) && $categories_table === $categories_table_exists ) {
+            // Get category info for products that have category_id
+            $category_ids = array_filter( array_column( $products, 'product_category_id' ) );
+            if ( ! empty( $category_ids ) ) {
+                $category_ids_placeholders = implode( ',', array_fill( 0, count( $category_ids ), '%d' ) );
+                $categories = $wpdb->get_results(
+                    $wpdb->prepare(
+                        "SELECT id, name, slug FROM {$categories_table} WHERE id IN ({$category_ids_placeholders})",
+                        ...$category_ids
+                    ),
+                    ARRAY_A
+                );
+                
+                // Create a map of category_id => category info
+                $category_map = [];
+                foreach ( $categories as $cat ) {
+                    $category_map[ $cat['id'] ] = [
+                        'name' => $cat['name'],
+                        'slug' => $cat['slug']
+                    ];
+                }
+                
+                // Add category info to products
+                foreach ( $products as &$product ) {
+                    $cat_id = $product['product_category_id'] ?? null;
+                    if ( $cat_id && isset( $category_map[ $cat_id ] ) ) {
+                        $product['category_name'] = $category_map[ $cat_id ]['name'];
+                        $product['category_slug'] = $category_map[ $cat_id ]['slug'];
+                    } else {
+                        $product['category_name'] = null;
+                        $product['category_slug'] = null;
+                    }
+                }
+                unset( $product );
+            } else {
+                // No categories, add null fields
+                foreach ( $products as &$product ) {
+                    $product['category_name'] = null;
+                    $product['category_slug'] = null;
+                }
+                unset( $product );
+            }
+        } elseif ( ! empty( $products ) ) {
+            // Categories table doesn't exist, add null fields
+            foreach ( $products as &$product ) {
+                $product['category_name'] = null;
+                $product['category_slug'] = null;
+            }
+            unset( $product );
+        }
+        
+        error_log( sprintf( 'CWM Debug list_merchant_products: Final products count: %d', count( $products ) ) );
+        
+        // If no products found, check what's in the database
+        if ( empty( $products ) ) {
+            // Check all products to see what merchant_ids exist
+            $all_products_sample = $wpdb->get_results(
+                "SELECT id, merchant_id, name, status FROM {$products_table} ORDER BY created_at DESC LIMIT 10",
+                ARRAY_A
+            );
+            error_log( sprintf( 
+                'CWM Debug: Sample of all products in database: %s', 
+                json_encode( $all_products_sample, JSON_UNESCAPED_UNICODE )
+            ) );
+            
+            $orphaned_count = $wpdb->get_var( "SELECT COUNT(*) FROM {$products_table} WHERE (merchant_id = 0 OR merchant_id IS NULL) AND (status = 'active' OR status IS NULL)" );
+            
+            if ( $orphaned_count > 0 ) {
+                error_log( sprintf( 
+                    'CWM Debug: Merchant %d has no products, but found %d orphaned products (merchant_id = 0 or NULL)', 
+                    $user_id, 
+                    $orphaned_count 
+                ) );
+            }
+            
+            // Also check if there are products with different merchant_id values
+            $all_merchant_ids = $wpdb->get_col( "SELECT DISTINCT merchant_id FROM {$products_table} WHERE status = 'active' ORDER BY merchant_id" );
+            error_log( sprintf( 
+                'CWM Debug: Found products with merchant_ids: %s', 
+                implode( ', ', $all_merchant_ids ) 
+            ) );
+            
+            // Check if there are products with the exact merchant_id we're looking for
+            $direct_check = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$products_table} WHERE merchant_id = %d", $user_id ) );
+            error_log( sprintf( 
+                'CWM Debug: Direct count check - products with merchant_id = %d: %d', 
+                $user_id, 
+                $direct_check 
+            ) );
+        }
 
-        return rest_ensure_response( [
+        // Ensure products is an array
+        $products_array = is_array( $products ) ? $products : [];
+        
+        error_log( sprintf( 'CWM Debug list_merchant_products: Returning %d products for merchant_id %d', count( $products_array ), $user_id ) );
+        
+        $response_data = [
             'status' => 'success',
             'data'   => array_map( function( $product ) {
                 return [
@@ -3796,12 +4720,17 @@ class API_Handler {
                     'image'                   => $product['image'] ?? null,
                     'stock_quantity'          => (int) $product['stock_quantity'],
                     'online_purchase_enabled' => (bool) $product['online_purchase_enabled'],
+                    'is_featured'             => isset( $product['is_featured'] ) ? (bool) $product['is_featured'] : false,
                     'status'                  => $product['status'],
                     'created_at'              => $product['created_at'],
                     'updated_at'              => $product['updated_at'],
                 ];
-            }, $products ?: [] ),
-        ] );
+            }, $products_array ),
+        ];
+        
+        error_log( sprintf( 'CWM Debug list_merchant_products: Response data structure - status: %s, data count: %d', $response_data['status'], count( $response_data['data'] ) ) );
+        
+        return rest_ensure_response( $response_data );
     }
 
     /**
@@ -3813,7 +4742,61 @@ class API_Handler {
     public function create_product( WP_REST_Request $request ) {
         global $wpdb;
         $user_id = get_current_user_id();
+        
+        // Validate user_id
+        if ( ! $user_id || $user_id <= 0 ) {
+            return new WP_Error( 'cwm_invalid_user', __( 'کاربر معتبر نیست.', 'company-wallet-manager' ), [ 'status' => 401 ] );
+        }
+        
         $table = $wpdb->prefix . 'cwm_products';
+        
+        // Ensure table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" );
+        if ( $table !== $table_exists ) {
+            // Table doesn't exist, create it
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset_collate = $wpdb->get_charset_collate();
+            $sql = "CREATE TABLE {$table} (
+                    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                    product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                    name VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                    image VARCHAR(500) NULL,
+                    stock_quantity INT(11) NOT NULL DEFAULT 0,
+                    online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    KEY merchant_id (merchant_id),
+                    KEY product_category_id (product_category_id),
+                    KEY online_purchase_enabled (online_purchase_enabled),
+                    KEY is_featured (is_featured),
+                    KEY status (status)
+            ) {$charset_collate};";
+            dbDelta( $sql );
+        } else {
+            // Table exists, ensure is_featured column exists
+            $column_exists = $wpdb->get_results( "SHOW COLUMNS FROM {$table} LIKE 'is_featured'" );
+            if ( empty( $column_exists ) ) {
+                $wpdb->query( "ALTER TABLE {$table} ADD COLUMN is_featured TINYINT(1) NOT NULL DEFAULT 0 AFTER online_purchase_enabled" );
+                $wpdb->query( "ALTER TABLE {$table} ADD KEY is_featured (is_featured)" );
+            }
+            // Ensure status column exists
+            $status_column = $wpdb->get_results( "SHOW COLUMNS FROM {$table} LIKE 'status'" );
+            if ( empty( $status_column ) ) {
+                $wpdb->query( "ALTER TABLE {$table} ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'active' AFTER is_featured" );
+                $wpdb->query( "ALTER TABLE {$table} ADD KEY status (status)" );
+                // Update existing products with NULL or empty status to 'active'
+                $wpdb->query( "UPDATE {$table} SET status = 'active' WHERE status IS NULL OR status = ''" );
+            } else {
+                // Ensure existing products with NULL or empty status are set to 'active'
+                $wpdb->query( "UPDATE {$table} SET status = 'active' WHERE status IS NULL OR status = ''" );
+            }
+        }
 
         $name                    = sanitize_text_field( $request->get_param( 'name' ) );
         $description             = sanitize_textarea_field( $request->get_param( 'description' ) ?? '' );
@@ -3821,6 +4804,7 @@ class API_Handler {
         $product_category_id     = $request->get_param( 'product_category_id' ) ? (int) $request->get_param( 'product_category_id' ) : null;
         $stock_quantity          = (int) ( $request->get_param( 'stock_quantity' ) ?? 0 );
         $online_purchase_enabled = (bool) $request->get_param( 'online_purchase_enabled' );
+        $is_featured             = (bool) ( $request->get_param( 'is_featured' ) ?? false );
 
         if ( empty( $name ) ) {
             return new WP_Error( 'cwm_invalid_name', __( 'نام محصول الزامی است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
@@ -3839,6 +4823,16 @@ class API_Handler {
             }
         }
 
+        // Double-check user_id before insert
+        if ( ! $user_id || $user_id <= 0 ) {
+            $user = wp_get_current_user();
+            $user_id = $user && $user->ID > 0 ? $user->ID : 0;
+        }
+        
+        if ( ! $user_id || $user_id <= 0 ) {
+            return new WP_Error( 'cwm_invalid_user', __( 'شناسه کاربر معتبر نیست. لطفاً دوباره وارد شوید.', 'company-wallet-manager' ), [ 'status' => 401 ] );
+        }
+
         $result = $wpdb->insert(
             $table,
             [
@@ -3850,13 +4844,32 @@ class API_Handler {
                 'image'                   => $image_url,
                 'stock_quantity'          => $stock_quantity,
                 'online_purchase_enabled' => $online_purchase_enabled ? 1 : 0,
+                'is_featured'             => $is_featured ? 1 : 0,
                 'status'                  => 'active',
             ],
-            [ '%d', '%d', '%s', '%s', '%f', '%s', '%d', '%d', '%s' ]
+            [ '%d', '%d', '%s', '%s', '%f', '%s', '%d', '%d', '%d', '%s' ]
         );
 
         if ( false === $result ) {
-            return new WP_Error( 'cwm_db_error', __( 'خطا در ایجاد محصول.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+            $error_message = $wpdb->last_error ? $wpdb->last_error : __( 'خطا در ایجاد محصول.', 'company-wallet-manager' );
+            return new WP_Error( 'cwm_db_error', $error_message, [ 'status' => 500 ] );
+        }
+        
+        // Verify the inserted product has correct merchant_id
+        $inserted_product = $wpdb->get_row(
+            $wpdb->prepare( "SELECT merchant_id FROM {$table} WHERE id = %d", $wpdb->insert_id ),
+            ARRAY_A
+        );
+        
+        if ( $inserted_product && (int) $inserted_product['merchant_id'] !== (int) $user_id ) {
+            // Fix the merchant_id if it was incorrectly stored
+            $wpdb->update(
+                $table,
+                [ 'merchant_id' => $user_id ],
+                [ 'id' => $wpdb->insert_id ],
+                [ '%d' ],
+                [ '%d' ]
+            );
         }
 
         return rest_ensure_response( [
@@ -3879,6 +4892,36 @@ class API_Handler {
         $product_id = (int) $request->get_param( 'id' );
         $products_table = $wpdb->prefix . 'cwm_products';
         $categories_table = $wpdb->prefix . 'cwm_product_categories';
+        
+        // Ensure products table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$products_table}'" );
+        if ( $products_table !== $table_exists ) {
+            // Table doesn't exist, create it
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset_collate = $wpdb->get_charset_collate();
+            $sql = "CREATE TABLE {$products_table} (
+                    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                    product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                    name VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                    image VARCHAR(500) NULL,
+                    stock_quantity INT(11) NOT NULL DEFAULT 0,
+                    online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    KEY merchant_id (merchant_id),
+                    KEY product_category_id (product_category_id),
+                    KEY online_purchase_enabled (online_purchase_enabled),
+                    KEY is_featured (is_featured),
+                    KEY status (status)
+            ) {$charset_collate};";
+            dbDelta( $sql );
+        }
 
         $product = $wpdb->get_row(
             $wpdb->prepare(
@@ -3929,6 +4972,36 @@ class API_Handler {
         $is_admin = $this->user_has_role( $current_user, 'administrator' ) || user_can( $current_user, 'manage_wallets' );
         $product_id = (int) $request->get_param( 'id' );
         $table = $wpdb->prefix . 'cwm_products';
+        
+        // Ensure table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" );
+        if ( $table !== $table_exists ) {
+            // Table doesn't exist, create it
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset_collate = $wpdb->get_charset_collate();
+            $sql = "CREATE TABLE {$table} (
+                    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                    product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                    name VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                    image VARCHAR(500) NULL,
+                    stock_quantity INT(11) NOT NULL DEFAULT 0,
+                    online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    KEY merchant_id (merchant_id),
+                    KEY product_category_id (product_category_id),
+                    KEY online_purchase_enabled (online_purchase_enabled),
+                    KEY is_featured (is_featured),
+                    KEY status (status)
+            ) {$charset_collate};";
+            dbDelta( $sql );
+        }
 
         // Verify ownership
         $product = $wpdb->get_row( $wpdb->prepare( "SELECT merchant_id FROM {$table} WHERE id = %d", $product_id ), ARRAY_A );
@@ -3966,6 +5039,11 @@ class API_Handler {
 
         if ( $request->has_param( 'online_purchase_enabled' ) ) {
             $update_data['online_purchase_enabled'] = (bool) $request->get_param( 'online_purchase_enabled' ) ? 1 : 0;
+            $update_format[] = '%d';
+        }
+
+        if ( $request->has_param( 'is_featured' ) ) {
+            $update_data['is_featured'] = (bool) $request->get_param( 'is_featured' ) ? 1 : 0;
             $update_format[] = '%d';
         }
 
@@ -4022,6 +5100,36 @@ class API_Handler {
         $is_admin = $this->user_has_role( $current_user, 'administrator' ) || user_can( $current_user, 'manage_wallets' );
         $product_id = (int) $request->get_param( 'id' );
         $table = $wpdb->prefix . 'cwm_products';
+        
+        // Ensure table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" );
+        if ( $table !== $table_exists ) {
+            // Table doesn't exist, create it
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset_collate = $wpdb->get_charset_collate();
+            $sql = "CREATE TABLE {$table} (
+                    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                    product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                    name VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                    image VARCHAR(500) NULL,
+                    stock_quantity INT(11) NOT NULL DEFAULT 0,
+                    online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    KEY merchant_id (merchant_id),
+                    KEY product_category_id (product_category_id),
+                    KEY online_purchase_enabled (online_purchase_enabled),
+                    KEY is_featured (is_featured),
+                    KEY status (status)
+            ) {$charset_collate};";
+            dbDelta( $sql );
+        }
 
         // Verify ownership
         $product = $wpdb->get_row( $wpdb->prepare( "SELECT merchant_id FROM {$table} WHERE id = %d", $product_id ), ARRAY_A );
@@ -4052,6 +5160,36 @@ class API_Handler {
         $products_table = $wpdb->prefix . 'cwm_products';
         $categories_table = $wpdb->prefix . 'cwm_product_categories';
         $merchants_table = $wpdb->prefix . 'users';
+        
+        // Ensure products table exists
+        $table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$products_table}'" );
+        if ( $products_table !== $table_exists ) {
+            // Table doesn't exist, create it
+            require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+            $charset_collate = $wpdb->get_charset_collate();
+            $sql = "CREATE TABLE {$products_table} (
+                    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    merchant_id BIGINT(20) UNSIGNED NOT NULL,
+                    product_category_id BIGINT(20) UNSIGNED DEFAULT NULL,
+                    name VARCHAR(191) NOT NULL,
+                    description TEXT NULL,
+                    price DECIMAL(20, 6) NOT NULL DEFAULT 0,
+                    image VARCHAR(500) NULL,
+                    stock_quantity INT(11) NOT NULL DEFAULT 0,
+                    online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                    is_featured TINYINT(1) NOT NULL DEFAULT 0,
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    KEY merchant_id (merchant_id),
+                    KEY product_category_id (product_category_id),
+                    KEY online_purchase_enabled (online_purchase_enabled),
+                    KEY is_featured (is_featured),
+                    KEY status (status)
+            ) {$charset_collate};";
+            dbDelta( $sql );
+        }
 
         $products = $wpdb->get_results(
             "SELECT p.*, pc.name as category_name, pc.slug as category_slug, 
@@ -4061,7 +5199,7 @@ class API_Handler {
             LEFT JOIN {$categories_table} pc ON p.product_category_id = pc.id 
             LEFT JOIN {$merchants_table} u ON p.merchant_id = u.ID
             WHERE p.online_purchase_enabled = 1 AND p.status = 'active' AND p.stock_quantity > 0
-            ORDER BY p.created_at DESC",
+            ORDER BY p.is_featured DESC, p.created_at DESC",
             ARRAY_A
         );
 
@@ -4082,6 +5220,7 @@ class API_Handler {
                     'image'                   => $product['image'] ?? null,
                     'stock_quantity'          => (int) $product['stock_quantity'],
                     'online_purchase_enabled' => true,
+                    'is_featured'             => isset( $product['is_featured'] ) ? (bool) $product['is_featured'] : false,
                 ];
             }, $products ?: [] ),
         ] );
@@ -4098,44 +5237,127 @@ class API_Handler {
     public function get_cart( WP_REST_Request $request ) {
         global $wpdb;
         $user_id = get_current_user_id();
+        
+        error_log( sprintf( 'CWM Debug get_cart: Starting - user_id=%d', $user_id ) );
+        
+        if ( $user_id === 0 ) {
+            error_log( 'CWM Debug get_cart: WARNING - user_id is 0! User may not be authenticated.' );
+            $current_user = wp_get_current_user();
+            error_log( sprintf( 'CWM Debug get_cart: wp_get_current_user() - ID=%d, roles=%s', 
+                $current_user->ID ?? 0,
+                implode( ', ', $current_user->roles ?? [] )
+            ) );
+        }
+        
         $cart_table = $wpdb->prefix . 'cwm_cart_items';
         $products_table = $wpdb->prefix . 'cwm_products';
         $categories_table = $wpdb->prefix . 'cwm_product_categories';
 
-        $items = $wpdb->get_results(
+        // First, get all cart items for the user (simple query without JOIN)
+        $cart_items = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT ci.*, p.name as product_name, p.price, p.image, p.stock_quantity, 
-                        p.merchant_id, p.product_category_id, pc.name as category_name,
-                        (SELECT meta_value FROM {$wpdb->usermeta} WHERE user_id = p.merchant_id AND meta_key = '_cwm_store_name') as store_name
-                FROM {$cart_table} ci
-                INNER JOIN {$products_table} p ON ci.product_id = p.id
-                LEFT JOIN {$categories_table} pc ON p.product_category_id = pc.id
-                WHERE ci.employee_id = %d AND p.online_purchase_enabled = 1 AND p.status = 'active'
-                ORDER BY ci.created_at DESC",
+                "SELECT * FROM {$cart_table} WHERE employee_id = %d ORDER BY created_at DESC",
                 $user_id
             ),
             ARRAY_A
         );
-
-        return rest_ensure_response( [
+        
+        error_log( sprintf( 'CWM Debug get_cart: Found %d cart items in cart table for user_id %d', count( $cart_items ?: [] ), $user_id ) );
+        
+        if ( empty( $cart_items ) ) {
+            error_log( sprintf( 'CWM Debug get_cart: No cart items found for employee_id %d', $user_id ) );
+            return rest_ensure_response( [
+                'status' => 'success',
+                'data'   => [],
+            ] );
+        }
+        
+        // Now fetch product details for each cart item
+        $items = [];
+        foreach ( $cart_items as $cart_item ) {
+            $product = $wpdb->get_row(
+                $wpdb->prepare( "SELECT * FROM {$products_table} WHERE id = %d", $cart_item['product_id'] ),
+                ARRAY_A
+            );
+            
+            if ( ! $product ) {
+                error_log( sprintf( 'CWM Debug get_cart: Product %d not found for cart item %d', $cart_item['product_id'], $cart_item['id'] ) );
+                continue; // Skip this item if product doesn't exist
+            }
+            
+            // Get category name if exists
+            $category_name = null;
+            if ( ! empty( $product['product_category_id'] ) ) {
+                $category = $wpdb->get_row(
+                    $wpdb->prepare( "SELECT name FROM {$categories_table} WHERE id = %d", $product['product_category_id'] ),
+                    ARRAY_A
+                );
+                $category_name = $category['name'] ?? null;
+            }
+            
+            // Get store name
+            $store_name = get_user_meta( $product['merchant_id'], '_cwm_store_name', true );
+            if ( empty( $store_name ) ) {
+                $store_name = '';
+            }
+            
+            // Combine cart item with product data
+            $items[] = array_merge( $cart_item, [
+                'product_name'        => $product['name'],
+                'price'               => $product['price'],
+                'image'               => $product['image'],
+                'stock_quantity'      => $product['stock_quantity'],
+                'merchant_id'         => $product['merchant_id'],
+                'product_category_id' => $product['product_category_id'],
+                'category_name'       => $category_name,
+                'store_name'          => $store_name,
+            ] );
+        }
+        
+        error_log( sprintf( 'CWM Debug get_cart: Processed %d items after merging product data', count( $items ) ) );
+        
+        // Log each item for debugging
+        if ( ! empty( $items ) ) {
+            foreach ( $items as $item ) {
+                error_log( sprintf( 'CWM Debug get_cart item: id=%d, product_id=%d, product_name=%s, quantity=%d', 
+                    $item['id'] ?? 0, 
+                    $item['product_id'] ?? 0, 
+                    $item['product_name'] ?? 'N/A',
+                    $item['quantity'] ?? 0
+                ) );
+            }
+        }
+        
+        $mapped_items = array_map( function( $item ) {
+            return [
+                'id'                  => (int) $item['id'],
+                'product_id'          => (int) $item['product_id'],
+                'quantity'            => (int) $item['quantity'],
+                'product_name'        => $item['product_name'],
+                'price'               => (float) $item['price'],
+                'subtotal'            => (float) $item['price'] * (int) $item['quantity'],
+                'image'               => $item['image'] ?? null,
+                'stock_quantity'      => (int) $item['stock_quantity'],
+                'merchant_id'         => (int) $item['merchant_id'],
+                'store_name'          => $item['store_name'] ?? '',
+                'product_category_id' => $item['product_category_id'] ? (int) $item['product_category_id'] : null,
+                'category_name'       => $item['category_name'] ?? null,
+            ];
+        }, $items ?: [] );
+        
+        error_log( sprintf( 'CWM Debug get_cart: Returning %d mapped items', count( $mapped_items ) ) );
+        
+        $response_data = [
             'status' => 'success',
-            'data'   => array_map( function( $item ) {
-                return [
-                    'id'                  => (int) $item['id'],
-                    'product_id'          => (int) $item['product_id'],
-                    'quantity'            => (int) $item['quantity'],
-                    'product_name'        => $item['product_name'],
-                    'price'               => (float) $item['price'],
-                    'subtotal'            => (float) $item['price'] * (int) $item['quantity'],
-                    'image'               => $item['image'] ?? null,
-                    'stock_quantity'      => (int) $item['stock_quantity'],
-                    'merchant_id'         => (int) $item['merchant_id'],
-                    'store_name'          => $item['store_name'] ?? '',
-                    'product_category_id' => $item['product_category_id'] ? (int) $item['product_category_id'] : null,
-                    'category_name'       => $item['category_name'] ?? null,
-                ];
-            }, $items ?: [] ),
-        ] );
+            'data'   => $mapped_items,
+        ];
+        
+        error_log( sprintf( 'CWM Debug get_cart: Response structure - status: %s, data count: %d', 
+            $response_data['status'], 
+            count( $response_data['data'] ) 
+        ) );
+
+        return rest_ensure_response( $response_data );
     }
 
     /**
@@ -4150,6 +5372,18 @@ class API_Handler {
         $product_id = (int) $request->get_param( 'product_id' );
         $quantity = (int) ( $request->get_param( 'quantity' ) ?? 1 );
 
+        error_log( sprintf( 'CWM Debug add_to_cart: Starting - user_id=%d, product_id=%d, quantity=%d', $user_id, $product_id, $quantity ) );
+        
+        if ( $user_id === 0 ) {
+            error_log( 'CWM Debug add_to_cart: ERROR - user_id is 0! User may not be authenticated.' );
+            $current_user = wp_get_current_user();
+            error_log( sprintf( 'CWM Debug add_to_cart: wp_get_current_user() - ID=%d, roles=%s', 
+                $current_user->ID ?? 0,
+                implode( ', ', $current_user->roles ?? [] )
+            ) );
+            return new WP_Error( 'cwm_not_authenticated', __( 'برای افزودن به سبد خرید ابتدا وارد شوید.', 'company-wallet-manager' ), [ 'status' => 401 ] );
+        }
+
         $products_table = $wpdb->prefix . 'cwm_products';
         $cart_table = $wpdb->prefix . 'cwm_cart_items';
 
@@ -4163,14 +5397,23 @@ class API_Handler {
         );
 
         if ( ! $product ) {
+            error_log( sprintf( 'CWM Debug add_to_cart: Product %d not found', $product_id ) );
             return new WP_Error( 'cwm_product_not_found', __( 'محصول یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
         }
 
+        error_log( sprintf( 'CWM Debug add_to_cart: Product found - online_purchase_enabled=%d, status=%s, stock=%d', 
+            $product['online_purchase_enabled'], 
+            $product['status'], 
+            $product['stock_quantity'] 
+        ) );
+
         if ( ! $product['online_purchase_enabled'] || $product['status'] !== 'active' ) {
+            error_log( sprintf( 'CWM Debug add_to_cart: Product not available for online purchase' ) );
             return new WP_Error( 'cwm_product_not_available', __( 'این محصول برای خرید آنلاین در دسترس نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
         }
 
         if ( $quantity > (int) $product['stock_quantity'] ) {
+            error_log( sprintf( 'CWM Debug add_to_cart: Insufficient stock - requested=%d, available=%d', $quantity, $product['stock_quantity'] ) );
             return new WP_Error( 'cwm_insufficient_stock', __( 'موجودی محصول کافی نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
         }
 
@@ -4185,20 +5428,28 @@ class API_Handler {
         );
 
         if ( $existing ) {
+            error_log( sprintf( 'CWM Debug add_to_cart: Item already exists in cart - id=%d, current_quantity=%d', $existing['id'], $existing['quantity'] ) );
             $new_quantity = (int) $existing['quantity'] + $quantity;
             if ( $new_quantity > (int) $product['stock_quantity'] ) {
+                error_log( sprintf( 'CWM Debug add_to_cart: Insufficient stock after adding - new_quantity=%d, available=%d', $new_quantity, $product['stock_quantity'] ) );
                 return new WP_Error( 'cwm_insufficient_stock', __( 'موجودی محصول کافی نیست.', 'company-wallet-manager' ), [ 'status' => 400 ] );
             }
 
-            $wpdb->update(
+            $update_result = $wpdb->update(
                 $cart_table,
                 [ 'quantity' => $new_quantity ],
                 [ 'id' => (int) $existing['id'] ],
                 [ '%d' ],
                 [ '%d' ]
             );
+            
+            error_log( sprintf( 'CWM Debug add_to_cart: Update result=%s, rows_affected=%d', $update_result !== false ? 'success' : 'failed', $update_result ) );
+            if ( $update_result === false ) {
+                error_log( sprintf( 'CWM Debug add_to_cart: Update error - %s', $wpdb->last_error ) );
+            }
         } else {
-            $wpdb->insert(
+            error_log( sprintf( 'CWM Debug add_to_cart: Inserting new item into cart' ) );
+            $insert_result = $wpdb->insert(
                 $cart_table,
                 [
                     'employee_id' => $user_id,
@@ -4207,6 +5458,22 @@ class API_Handler {
                 ],
                 [ '%d', '%d', '%d' ]
             );
+            
+            error_log( sprintf( 'CWM Debug add_to_cart: Insert result=%s, insert_id=%d', $insert_result !== false ? 'success' : 'failed', $wpdb->insert_id ) );
+            if ( $insert_result === false ) {
+                error_log( sprintf( 'CWM Debug add_to_cart: Insert error - %s', $wpdb->last_error ) );
+                return new WP_Error( 'cwm_insert_failed', __( 'خطا در افزودن محصول به سبد خرید.', 'company-wallet-manager' ), [ 'status' => 500 ] );
+            }
+            
+            // Verify the item was inserted
+            $verify = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT * FROM {$cart_table} WHERE id = %d",
+                    $wpdb->insert_id
+                ),
+                ARRAY_A
+            );
+            error_log( sprintf( 'CWM Debug add_to_cart: Verification - item %s', $verify ? 'found' : 'NOT found' ) );
         }
 
         return rest_ensure_response( [
@@ -5037,7 +6304,27 @@ class API_Handler {
     public function get_company_employee_reports( WP_REST_Request $request ) {
         global $wpdb;
         $user = wp_get_current_user();
-        $user_email = $user->user_email;
+        $user_id = $user->ID;
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user->ID,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return rest_ensure_response( [
+                'status' => 'success',
+                'data'   => [
+                    'employees' => [],
+                ],
+            ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
 
         // Get company employees
         $employees = $wpdb->get_results(
@@ -5045,8 +6332,8 @@ class API_Handler {
                 "SELECT u.ID as employee_id, u.display_name, u.user_email
                 FROM {$wpdb->users} u
                 INNER JOIN {$wpdb->usermeta} um ON u.ID = um.user_id
-                WHERE um.meta_key = '_cwm_company_email' AND um.meta_value = %s",
-                $user_email
+                WHERE um.meta_key = '_cwm_company_id' AND um.meta_value = %d",
+                $company_id
             ),
             ARRAY_A
         );
@@ -5122,6 +6409,439 @@ class API_Handler {
             'data'   => [
                 'employees' => $result,
             ],
+        ] );
+    }
+
+    /**
+     * Get company credit balance.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function get_company_credit( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $user_id = $user->ID;
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user_id,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return new WP_Error( 'cwm_company_not_found', __( 'شرکت یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
+        $credit_amount = get_post_meta( $company_id, '_cwm_company_credit', true );
+        $credit_amount = $credit_amount ? floatval( $credit_amount ) : 0;
+
+        // Get wallet balance
+        $wallet_system = new Wallet_System();
+        $wallet_balance = $wallet_system->get_balance( $user_id );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'credit_amount'  => $credit_amount,
+                'wallet_balance' => $wallet_balance,
+                'available'      => $wallet_balance,
+            ],
+        ] );
+    }
+
+    /**
+     * Allocate credit to employees from Excel file.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function allocate_employee_credit_from_excel( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $user_id = $user->ID;
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user_id,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return new WP_Error( 'cwm_company_not_found', __( 'شرکت یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        // Handle file upload - WordPress REST API uses $_FILES for multipart/form-data
+        $file = null;
+        if ( ! empty( $_FILES['file'] ) && is_array( $_FILES['file'] ) ) {
+            $file = $_FILES['file'];
+        } else {
+            $file_params = $request->get_file_params();
+            if ( ! empty( $file_params ) && ! empty( $file_params['file'] ) ) {
+                $file = $file_params['file'];
+            }
+        }
+
+        if ( empty( $file ) || ( is_array( $file ) && empty( $file['tmp_name'] ) ) ) {
+            return new WP_Error( 'cwm_no_file', __( 'فایل ارسال نشده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        // Get bulk amount if provided
+        $bulk_amount = $request->get_param( 'amount' );
+        $bulk_amount = ! empty( $bulk_amount ) ? sanitize_text_field( $bulk_amount ) : '';
+
+        $csv_handler = new \CWM\Company_CSV_Handler();
+        $result = $csv_handler->process_employee_credit_allocation( $file, $user_id, $bulk_amount );
+
+        if ( is_wp_error( $result ) ) {
+            return $result;
+        }
+
+        return rest_ensure_response( $result );
+    }
+
+    /**
+     * Get company category caps.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function get_company_category_caps( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $user_id = $user->ID;
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user_id,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return new WP_Error( 'cwm_company_not_found', __( 'شرکت یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
+        $caps = $this->category_manager->get_company_category_caps( $company_id );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'company_id' => $company_id,
+                'caps'       => $caps,
+            ],
+        ] );
+    }
+
+    /**
+     * Update company category caps.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function update_company_category_caps( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $user_id = $user->ID;
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user_id,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return new WP_Error( 'cwm_company_not_found', __( 'شرکت یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
+        $payload = $request->get_json_params();
+        $caps = isset( $payload['caps'] ) ? $payload['caps'] : [];
+
+        if ( ! is_array( $caps ) ) {
+            return new WP_Error( 'cwm_invalid_caps', __( 'فرمت محدودیت‌ها نامعتبر است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        if ( empty( $caps ) ) {
+            return new WP_Error( 'cwm_empty_caps', __( 'هیچ محدودیتی ارسال نشده است.', 'company-wallet-manager' ), [ 'status' => 400 ] );
+        }
+
+        $saved_count = 0;
+        $errors = [];
+
+        // Log received data for debugging
+        error_log( 'Category Caps Update - Received payload: ' . print_r( $caps, true ) );
+        error_log( 'Category Caps Update - Full request: ' . print_r( $request->get_json_params(), true ) );
+
+        foreach ( $caps as $index => $cap ) {
+            // Log each cap before processing
+            error_log( "Processing cap at index $index: " . print_r( $cap, true ) );
+            
+            // More detailed validation
+            $category_id = isset( $cap['category_id'] ) ? absint( $cap['category_id'] ) : 0;
+            
+            // Get limit_type with better handling - always default to 'amount' if invalid
+            $raw_limit_type = isset( $cap['limit_type'] ) ? $cap['limit_type'] : '';
+            
+            // Sanitize and validate limit_type
+            if ( ! empty( $raw_limit_type ) ) {
+                $limit_type = trim( sanitize_text_field( (string) $raw_limit_type ) );
+            } else {
+                $limit_type = '';
+            }
+            
+            // If limit_type is empty or invalid, default to 'amount'
+            if ( empty( $limit_type ) || ! in_array( $limit_type, [ 'percentage', 'amount' ], true ) ) {
+                error_log( "Category $category_id - Invalid or empty limit_type: '$limit_type' (raw: '$raw_limit_type'), defaulting to 'amount'" );
+                $limit_type = 'amount';
+            }
+            
+            // Log the transformation
+            error_log( "Category $category_id - Raw limit_type: '$raw_limit_type', Final: '$limit_type'" );
+            
+            $limit_value = isset( $cap['limit_value'] ) ? floatval( $cap['limit_value'] ) : 0;
+
+            // Check all required fields
+            if ( $category_id <= 0 ) {
+                $errors[] = sprintf( __( 'محدودیت شماره %d: شناسه دسته‌بندی نامعتبر است.', 'company-wallet-manager' ), $index + 1 );
+                error_log( "Category Cap Error - Invalid category_id at index $index: " . print_r( $cap, true ) );
+                continue;
+            }
+
+            if ( $limit_value <= 0 ) {
+                $errors[] = sprintf( __( 'محدودیت دسته‌بندی %d: مقدار محدودیت باید بیشتر از صفر باشد.', 'company-wallet-manager' ), $category_id );
+                error_log( "Category Cap Error - Invalid limit_value for category $category_id: $limit_value" );
+                continue;
+            }
+
+            // Final validation before saving
+            if ( $limit_type !== 'amount' && $limit_type !== 'percentage' ) {
+                error_log( "Category $category_id - Final validation failed, limit_type is still invalid: '$limit_type'" );
+                $limit_type = 'amount'; // Force to 'amount' as last resort
+            }
+            
+            error_log( "Category $category_id - Saving with limit_type: '$limit_type', limit_value: $limit_value" );
+            
+            $result = $this->category_manager->set_company_category_cap( $company_id, $category_id, $limit_type, $limit_value );
+            
+            if ( false === $result ) {
+                global $wpdb;
+                $db_error = $wpdb->last_error ? $wpdb->last_error : __( 'خطای نامشخص دیتابیس', 'company-wallet-manager' );
+                $errors[] = sprintf( __( 'خطا در ذخیره محدودیت دسته‌بندی %d: %s', 'company-wallet-manager' ), $category_id, $db_error );
+                error_log( "Category $category_id - Database save failed: $db_error" );
+            } else {
+                $saved_count++;
+                error_log( "Category $category_id - Successfully saved" );
+            }
+        }
+
+        if ( ! empty( $errors ) && $saved_count === 0 ) {
+            return new WP_Error( 'cwm_save_failed', implode( ' ', $errors ), [ 'status' => 500 ] );
+        }
+
+        $message = $saved_count > 0 
+            ? sprintf( __( '%d محدودیت با موفقیت ذخیره شد.', 'company-wallet-manager' ), $saved_count )
+            : __( 'محدودیت‌های دسته‌بندی به‌روزرسانی شد.', 'company-wallet-manager' );
+
+        if ( ! empty( $errors ) ) {
+            $message .= ' ' . __( 'برخی خطاها رخ داد:', 'company-wallet-manager' ) . ' ' . implode( ' ', $errors );
+        }
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => $message,
+            'saved'   => $saved_count,
+            'errors'  => $errors,
+        ] );
+    }
+
+    /**
+     * Get top merchants for company.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function get_company_top_merchants( WP_REST_Request $request ) {
+        global $wpdb;
+        $user = wp_get_current_user();
+        $user_id = $user->ID;
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user->ID,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return rest_ensure_response( [
+                'status' => 'success',
+                'data'   => [
+                    'merchants' => [],
+                ],
+            ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
+
+        // Get company employees
+        $employees = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT u.ID as employee_id
+                FROM {$wpdb->users} u
+                INNER JOIN {$wpdb->usermeta} um ON u.ID = um.user_id
+                WHERE um.meta_key = '_cwm_company_id' AND um.meta_value = %d",
+                $company_id
+            ),
+            ARRAY_A
+        );
+
+        if ( empty( $employees ) ) {
+            return rest_ensure_response( [
+                'status' => 'success',
+                'data'   => [
+                    'merchants' => [],
+                ],
+            ] );
+        }
+
+        $employee_ids = array_map( function( $emp ) {
+            return (int) $emp['employee_id'];
+        }, $employees );
+
+        $placeholders = implode( ',', array_fill( 0, count( $employee_ids ), '%d' ) );
+        $orders_table = $wpdb->prefix . 'cwm_orders';
+        $order_items_table = $wpdb->prefix . 'cwm_order_items';
+
+        // Get top merchants by sales
+        $top_merchants = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT o.merchant_id,
+                        (SELECT meta_value FROM {$wpdb->usermeta} WHERE user_id = o.merchant_id AND meta_key = '_cwm_store_name') as store_name,
+                        COUNT(DISTINCT o.id) as order_count,
+                        SUM(o.total_amount) as total_sales
+                FROM {$orders_table} o
+                WHERE o.employee_id IN ($placeholders) AND o.payment_status = 'paid'
+                GROUP BY o.merchant_id
+                ORDER BY total_sales DESC
+                LIMIT 20",
+                ...$employee_ids
+            ),
+            ARRAY_A
+        );
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'merchants' => array_map( function( $row ) {
+                    return [
+                        'merchant_id' => (int) $row['merchant_id'],
+                        'store_name'  => $row['store_name'] ?? '',
+                        'order_count' => (int) $row['order_count'],
+                        'total_sales' => (float) $row['total_sales'],
+                    ];
+                }, $top_merchants ?: [] ),
+            ],
+        ] );
+    }
+
+    /**
+     * Get employee online purchase access.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function get_employee_online_access( WP_REST_Request $request ) {
+        $employee_id = (int) $request->get_param( 'employee_id' );
+        $user = wp_get_current_user();
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user->ID,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return new WP_Error( 'cwm_company_not_found', __( 'شرکت یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
+
+        // Verify employee belongs to company
+        $employee_company_id = (int) get_user_meta( $employee_id, '_cwm_company_id', true );
+        if ( $employee_company_id !== $company_id ) {
+            return new WP_Error( 'cwm_unauthorized', __( 'دسترسی غیرمجاز.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+        }
+
+        $has_access = get_user_meta( $employee_id, '_cwm_online_purchase_enabled', true );
+        $has_access = $has_access === '1' || $has_access === true;
+
+        return rest_ensure_response( [
+            'status' => 'success',
+            'data'   => [
+                'employee_id'  => $employee_id,
+                'has_access'   => $has_access,
+            ],
+        ] );
+    }
+
+    /**
+     * Update employee online purchase access.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response|WP_Error
+     */
+    public function update_employee_online_access( WP_REST_Request $request ) {
+        $employee_id = (int) $request->get_param( 'employee_id' );
+        $user = wp_get_current_user();
+
+        // Get company post
+        $company_posts = get_posts( [
+            'post_type'   => 'cwm_company',
+            'meta_key'    => '_cwm_company_user_id',
+            'meta_value'  => $user->ID,
+            'post_status' => 'any',
+            'numberposts' => 1,
+        ] );
+
+        if ( empty( $company_posts ) ) {
+            return new WP_Error( 'cwm_company_not_found', __( 'شرکت یافت نشد.', 'company-wallet-manager' ), [ 'status' => 404 ] );
+        }
+
+        $company_id = $company_posts[0]->ID;
+
+        // Verify employee belongs to company
+        $employee_company_id = (int) get_user_meta( $employee_id, '_cwm_company_id', true );
+        if ( $employee_company_id !== $company_id ) {
+            return new WP_Error( 'cwm_unauthorized', __( 'دسترسی غیرمجاز.', 'company-wallet-manager' ), [ 'status' => 403 ] );
+        }
+
+        $payload = $request->get_json_params();
+        $has_access = isset( $payload['has_access'] ) ? (bool) $payload['has_access'] : false;
+
+        update_user_meta( $employee_id, '_cwm_online_purchase_enabled', $has_access ? '1' : '0' );
+
+        return rest_ensure_response( [
+            'status'  => 'success',
+            'message' => __( 'دسترسی خرید آنلاین به‌روزرسانی شد.', 'company-wallet-manager' ),
         ] );
     }
 }

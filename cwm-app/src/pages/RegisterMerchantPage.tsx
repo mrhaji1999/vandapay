@@ -118,45 +118,53 @@ export const RegisterMerchantPage = () => {
 
   return (
     <AuthLayout>
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      <form className="space-y-5" onSubmit={handleSubmit}>
         {FIELDS.map((field) => (
           <div key={field.name} className="space-y-2">
-            <Label htmlFor={field.name}>{field.label}</Label>
+            <Label htmlFor={field.name} className="text-sm font-semibold text-foreground">{field.label}</Label>
             <Input
               id={field.name}
               name={field.name}
               type={field.type ?? 'text'}
               required
               defaultValue={formState[field.name] ?? ''}
+              className="h-12 text-base border-2 focus:border-primary transition-colors"
             />
           </div>
         ))}
         <div className="space-y-2">
-          <Label>دسته‌بندی‌های پذیرنده</Label>
-          <div className="space-y-2 rounded-md border p-4">
+          <Label className="text-sm font-semibold text-foreground">دسته‌بندی‌های پذیرنده</Label>
+          <div className="space-y-3 rounded-xl border-2 border-border bg-secondary/50 p-4">
             {categoriesLoading ? (
-              <p className="text-sm text-muted-foreground">در حال بارگذاری دسته‌بندی‌ها…</p>
+              <p className="text-sm text-muted-foreground text-center py-4">در حال بارگذاری دسته‌بندی‌ها…</p>
             ) : categories.length > 0 ? (
               categories.map((category) => (
-                <label key={category.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span>{category.name}</span>
+                <label 
+                  key={category.id} 
+                  className="flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-card transition-colors cursor-pointer border border-border"
+                >
+                  <span className="text-sm font-medium text-foreground">{category.name}</span>
                   <input
                     type="checkbox"
                     name="category_ids[]"
                     value={category.id}
                     checked={selectedCategories.includes(category.id)}
                     onChange={() => toggleCategory(category.id)}
-                    className="h-4 w-4"
+                    className="h-5 w-5 rounded border-2 border-primary text-primary focus:ring-2 focus:ring-primary/20 cursor-pointer"
                   />
                 </label>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground">دسته‌بندی فعالی ثبت نشده است.</p>
+              <p className="text-sm text-muted-foreground text-center py-4">دسته‌بندی فعالی ثبت نشده است.</p>
             )}
           </div>
         </div>
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? 'در حال ارسال…' : 'ارسال'}
+        <Button 
+          type="submit" 
+          className="w-full h-12 text-base font-semibold bg-gradient-primary hover:opacity-90 shadow-lg shadow-primary/20 transition-all mt-6" 
+          disabled={loading}
+        >
+          {loading ? 'در حال ارسال…' : 'ثبت درخواست'}
         </Button>
       </form>
     </AuthLayout>

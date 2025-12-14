@@ -430,6 +430,26 @@ class Transaction_Controller {
             }
         }
 
+        // If no employee-specific limit exists, check company category caps
+        $company_id = (int) get_user_meta( $employee_id, '_cwm_company_id', true );
+        if ( $company_id > 0 ) {
+            $company_caps = $this->category_manager->get_company_category_caps( $company_id );
+            foreach ( $company_caps as $cap ) {
+                if ( (int) $cap['category_id'] === (int) $category_id ) {
+                    // Only use amount-type caps as fallback (percentage would need employee balance)
+                    if ( $cap['limit_type'] === 'amount' && isset( $cap['limit_value'] ) && $cap['limit_value'] > 0 ) {
+                        return [
+                            'category_id' => (int) $cap['category_id'],
+                            'category_name' => $cap['category_name'] ?? '',
+                            'limit' => (float) $cap['limit_value'],
+                            'spent' => 0.0,
+                            'remaining' => (float) $cap['limit_value'],
+                        ];
+                    }
+                }
+            }
+        }
+
         return null;
     }
 }

@@ -11,10 +11,20 @@ import { Select } from '../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { PayoutStatusBadge } from '../../components/common/PayoutStatusBadge';
 import { OTPModal } from '../../components/common/OTPModal';
+import { CreditCard as CreditCardComponent } from '../../components/common/CreditCard';
 import { apiClient } from '../../api/client';
 import { unwrapWordPressList, unwrapWordPressObject } from '../../api/wordpress';
 import { cn } from '../../utils/cn';
 import { iranProvinces, getCitiesByProvinceId, type Province, type City } from '../../lib/iran-cities';
+import {
+  CreditCard,
+  Package,
+  ShoppingCart,
+  Store,
+  TrendingUp,
+  LayoutDashboard,
+  Wallet
+} from 'lucide-react';
 
 interface Transaction {
   id: number;
@@ -122,6 +132,7 @@ interface Product {
   image?: string;
   stock_quantity: number;
   online_purchase_enabled: boolean;
+  is_featured?: boolean;
   status: string;
   created_at?: string;
   updated_at?: string;
@@ -190,6 +201,7 @@ export const MerchantDashboard = () => {
     product_category_id: '',
     stock_quantity: '',
     online_purchase_enabled: false,
+    is_featured: false,
     image: null as File | null
   });
 
@@ -328,13 +340,46 @@ export const MerchantDashboard = () => {
   });
 
   // Products Query
-  const { data: merchantProducts = [] } = useQuery<Product[]>({
+  const { data: merchantProducts = [], isLoading: isLoadingProducts, error: productsError } = useQuery<Product[]>({
     queryKey: ['merchant', 'products'],
     queryFn: async () => {
-      const response = await apiClient.get('/merchant/products');
-      return unwrapWordPressList<Product>(response.data);
+      try {
+        const response = await apiClient.get('/merchant/products');
+        console.log('Products API Response:', response.data);
+        
+        // Check if response.data exists
+        if (!response.data) {
+          console.error('No data in response');
+          return [];
+        }
+        
+        // Try to unwrap the data
+        const products = unwrapWordPressList<Product>(response.data);
+        console.log('Unwrapped products:', products);
+        
+        // If products is empty but response has data, log it
+        if (products.length === 0 && response.data) {
+          console.warn('Products array is empty but response has data:', response.data);
+          
+          // Try to extract data directly if unwrapWordPressList didn't work
+          if (response.data && typeof response.data === 'object' && 'data' in response.data) {
+            const directData = (response.data as any).data;
+            if (Array.isArray(directData)) {
+              console.log('Found products in response.data.data:', directData);
+              return directData as Product[];
+            }
+          }
+        }
+        
+        return products;
+      } catch (error) {
+        console.error('Error fetching products:', error);
+        throw error;
+      }
     },
-    enabled: activeTab === 'products'
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+    retry: 2
   });
 
   // Orders Query
@@ -476,9 +521,10 @@ export const MerchantDashboard = () => {
       });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success('محصول با موفقیت ایجاد شد.');
-      queryClient.invalidateQueries({ queryKey: ['merchant', 'products'] });
+      await queryClient.invalidateQueries({ queryKey: ['merchant', 'products'] });
+      await queryClient.refetchQueries({ queryKey: ['merchant', 'products'] });
       setProductForm({
         name: '',
         description: '',
@@ -486,6 +532,7 @@ export const MerchantDashboard = () => {
         product_category_id: '',
         stock_quantity: '',
         online_purchase_enabled: false,
+        is_featured: false,
         image: null
       });
     },
@@ -502,9 +549,10 @@ export const MerchantDashboard = () => {
       });
       return response.data;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success('محصول با موفقیت به‌روزرسانی شد.');
-      queryClient.invalidateQueries({ queryKey: ['merchant', 'products'] });
+      await queryClient.invalidateQueries({ queryKey: ['merchant', 'products'] });
+      await queryClient.refetchQueries({ queryKey: ['merchant', 'products'] });
       setEditingProduct(null);
       setProductForm({
         name: '',
@@ -513,6 +561,7 @@ export const MerchantDashboard = () => {
         product_category_id: '',
         stock_quantity: '',
         online_purchase_enabled: false,
+        is_featured: false,
         image: null
       });
     },
@@ -526,9 +575,10 @@ export const MerchantDashboard = () => {
     mutationFn: async (id: number) => {
       await apiClient.delete(`/merchant/products/${id}`);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success('محصول با موفقیت حذف شد.');
-      queryClient.invalidateQueries({ queryKey: ['merchant', 'products'] });
+      await queryClient.invalidateQueries({ queryKey: ['merchant', 'products'] });
+      await queryClient.refetchQueries({ queryKey: ['merchant', 'products'] });
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message ?? 'حذف محصول با خطا مواجه شد.';
@@ -685,6 +735,7 @@ export const MerchantDashboard = () => {
     formData.append('price', productForm.price);
     formData.append('stock_quantity', productForm.stock_quantity);
     formData.append('online_purchase_enabled', productForm.online_purchase_enabled ? '1' : '0');
+    formData.append('is_featured', productForm.is_featured ? '1' : '0');
     if (productForm.product_category_id) {
       formData.append('product_category_id', productForm.product_category_id);
     }
@@ -708,6 +759,7 @@ export const MerchantDashboard = () => {
       product_category_id: product.product_category_id?.toString() || '',
       stock_quantity: product.stock_quantity.toString(),
       online_purchase_enabled: product.online_purchase_enabled,
+      is_featured: product.is_featured ?? false,
       image: null
     });
   };
@@ -730,13 +782,13 @@ export const MerchantDashboard = () => {
   };
 
   const tabs = [
-    { id: 'payment' as TabType, label: 'درخواست پرداخت', icon: '💳' },
-    { id: 'products' as TabType, label: 'مدیریت محصولات', icon: '📦' },
-    { id: 'orders' as TabType, label: 'سفارشات آنلاین', icon: '🛒' },
-    { id: 'profile' as TabType, label: 'اطلاعات فروشگاه', icon: '🏪' },
-    { id: 'analytics' as TabType, label: 'آمار و نمودارها', icon: '📈' },
-    { id: 'transactions' as TabType, label: 'تراکنش‌ها', icon: '📊' },
-    { id: 'payouts' as TabType, label: 'تسویه‌ها', icon: '💰' }
+    { id: 'payment' as TabType, label: 'درخواست پرداخت', icon: CreditCard },
+    { id: 'products' as TabType, label: 'مدیریت محصولات', icon: Package },
+    { id: 'orders' as TabType, label: 'سفارشات آنلاین', icon: ShoppingCart },
+    { id: 'profile' as TabType, label: 'اطلاعات فروشگاه', icon: Store },
+    { id: 'analytics' as TabType, label: 'آمار و نمودارها', icon: TrendingUp },
+    { id: 'transactions' as TabType, label: 'تراکنش‌ها', icon: LayoutDashboard },
+    { id: 'payouts' as TabType, label: 'تسویه‌ها', icon: Wallet }
   ];
 
   return (
@@ -746,21 +798,15 @@ export const MerchantDashboard = () => {
       onTabChange={(tabId) => setActiveTab(tabId as TabType)}
     >
       <div className="min-h-screen">
-        {/* Balance Card */}
+        {/* Credit Card */}
         <div className="mb-6">
-          <Card className="border border-[#E5E7EB] bg-white shadow-sm">
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-[#6B7280]">موجودی کیف پول</p>
-                  <p className="mt-2 text-3xl font-bold text-[#1F2937]">{balance?.balance ?? 0}</p>
-                </div>
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF2FF]">
-                  <span className="text-2xl">💰</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="w-full md:w-1/3">
+            <CreditCardComponent
+              balance={balance?.balance ?? 0}
+              cardHolderName={profile?.store_name || merchantProfile?.store_name || 'پذیرنده'}
+              phoneNumber={profile?.mobile || profile?.phone || merchantProfile?.mobile || merchantProfile?.phone}
+            />
+          </div>
         </div>
 
         {/* Payment Tab - Full Width and Bold */}
@@ -966,15 +1012,27 @@ export const MerchantDashboard = () => {
                       />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="online_purchase_enabled"
-                      checked={productForm.online_purchase_enabled}
-                      onChange={(e) => setProductForm({ ...productForm, online_purchase_enabled: e.target.checked })}
-                      className="h-4 w-4"
-                    />
-                    <Label htmlFor="online_purchase_enabled">فعال کردن خرید آنلاین</Label>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="online_purchase_enabled"
+                        checked={productForm.online_purchase_enabled}
+                        onChange={(e) => setProductForm({ ...productForm, online_purchase_enabled: e.target.checked })}
+                        className="h-4 w-4"
+                      />
+                      <Label htmlFor="online_purchase_enabled">فعال کردن خرید آنلاین</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="is_featured"
+                        checked={productForm.is_featured}
+                        onChange={(e) => setProductForm({ ...productForm, is_featured: e.target.checked })}
+                        className="h-4 w-4"
+                      />
+                      <Label htmlFor="is_featured">محصول ویژه (نمایش در دسته‌بندی)</Label>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button type="submit" disabled={createProductMutation.isPending || updateProductMutation.isPending}>
@@ -999,6 +1057,7 @@ export const MerchantDashboard = () => {
                             product_category_id: '',
                             stock_quantity: '',
                             online_purchase_enabled: false,
+                            is_featured: false,
                             image: null
                           });
                         }}
@@ -1014,65 +1073,91 @@ export const MerchantDashboard = () => {
             {/* Products List */}
             <Card className="border border-[#E5E7EB] bg-white shadow-sm">
               <CardHeader className="border-b border-[#E5E7EB] pb-4">
-                <CardTitle className="text-lg font-semibold text-[#1F2937]">لیست محصولات</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg font-semibold text-[#1F2937]">لیست محصولات</CardTitle>
+                  {isLoadingProducts && (
+                    <span className="text-sm text-[#6B7280]">در حال بارگذاری...</span>
+                  )}
+                  {!isLoadingProducts && merchantProducts.length > 0 && (
+                    <span className="text-sm text-[#6B7280]">
+                      تعداد: {merchantProducts.length} محصول
+                    </span>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>نام</TableHead>
-                      <TableHead>دسته‌بندی</TableHead>
-                      <TableHead>قیمت</TableHead>
-                      <TableHead>موجودی</TableHead>
-                      <TableHead>خرید آنلاین</TableHead>
-                      <TableHead>عملیات</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {merchantProducts.length === 0 ? (
+                {productsError ? (
+                  <div className="text-center py-8">
+                    <p className="text-red-600 mb-4">خطا در دریافت محصولات</p>
+                    <Button
+                      onClick={() => queryClient.refetchQueries({ queryKey: ['merchant', 'products'] })}
+                      variant="outline"
+                    >
+                      تلاش مجدد
+                    </Button>
+                  </div>
+                ) : isLoadingProducts ? (
+                  <div className="text-center py-8 text-[#6B7280]">
+                    در حال بارگذاری محصولات...
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-[#6B7280]">
-                          محصولی ثبت نشده است.
-                        </TableCell>
+                        <TableHead>نام</TableHead>
+                        <TableHead>دسته‌بندی</TableHead>
+                        <TableHead>قیمت</TableHead>
+                        <TableHead>موجودی</TableHead>
+                        <TableHead>خرید آنلاین</TableHead>
+                        <TableHead>عملیات</TableHead>
                       </TableRow>
-                    ) : (
-                      merchantProducts.map((product) => (
-                        <TableRow key={product.id}>
-                          <TableCell className="font-medium">{product.name}</TableCell>
-                          <TableCell>{product.category_name || '—'}</TableCell>
-                          <TableCell>{product.price.toLocaleString()} تومان</TableCell>
-                          <TableCell>{product.stock_quantity}</TableCell>
-                          <TableCell>
-                            {product.online_purchase_enabled ? (
-                              <span className="text-green-600">✓ فعال</span>
-                            ) : (
-                              <span className="text-gray-400">غیرفعال</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleEditProduct(product)}
-                              >
-                                ویرایش
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleDeleteProduct(product.id)}
-                                disabled={deleteProductMutation.isPending}
-                              >
-                                حذف
-                              </Button>
-                            </div>
+                    </TableHeader>
+                    <TableBody>
+                      {merchantProducts.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center text-[#6B7280] py-8">
+                            محصولی ثبت نشده است.
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        merchantProducts.map((product) => (
+                          <TableRow key={product.id}>
+                            <TableCell className="font-medium">{product.name}</TableCell>
+                            <TableCell>{product.category_name || '—'}</TableCell>
+                            <TableCell>{product.price.toLocaleString()} تومان</TableCell>
+                            <TableCell>{product.stock_quantity}</TableCell>
+                            <TableCell>
+                              {product.online_purchase_enabled ? (
+                                <span className="text-green-600">✓ فعال</span>
+                              ) : (
+                                <span className="text-gray-400">غیرفعال</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleEditProduct(product)}
+                                >
+                                  ویرایش
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleDeleteProduct(product.id)}
+                                  disabled={deleteProductMutation.isPending}
+                                >
+                                  حذف
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </div>

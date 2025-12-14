@@ -194,6 +194,7 @@ class Plugin_Loader {
                         image VARCHAR(500) NULL,
                         stock_quantity INT(11) NOT NULL DEFAULT 0,
                         online_purchase_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                        is_featured TINYINT(1) NOT NULL DEFAULT 0,
                         status VARCHAR(50) NOT NULL DEFAULT 'active',
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -201,9 +202,17 @@ class Plugin_Loader {
                         KEY merchant_id (merchant_id),
                         KEY product_category_id (product_category_id),
                         KEY online_purchase_enabled (online_purchase_enabled),
+                        KEY is_featured (is_featured),
                         KEY status (status)
                 ) $charset_collate;";
                 dbDelta( $sql );
+                
+                // Add is_featured column if it doesn't exist
+                $column_exists = $wpdb->get_results( "SHOW COLUMNS FROM {$table_name} LIKE 'is_featured'" );
+                if ( empty( $column_exists ) ) {
+                    $wpdb->query( "ALTER TABLE {$table_name} ADD COLUMN is_featured TINYINT(1) NOT NULL DEFAULT 0 AFTER online_purchase_enabled" );
+                    $wpdb->query( "ALTER TABLE {$table_name} ADD KEY is_featured (is_featured)" );
+                }
 
                 // Shopping cart items table
                 $table_name = $wpdb->prefix . 'cwm_cart_items';

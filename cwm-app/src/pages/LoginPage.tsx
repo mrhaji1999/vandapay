@@ -73,19 +73,20 @@ export const LoginPage = () => {
 
   return (
     <AuthLayout>
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      <form className="space-y-6" onSubmit={handleSubmit}>
         <div className="space-y-2">
-          <Label htmlFor="username">نام کاربری</Label>
+          <Label htmlFor="username" className="text-sm font-semibold text-foreground">نام کاربری</Label>
           <Input
             id="username"
             name="username"
             placeholder="نام کاربری خود را وارد کنید"
             required
             autoComplete="username"
+            className="h-12 text-base border-2 focus:border-primary transition-colors"
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="password">رمز عبور</Label>
+          <Label htmlFor="password" className="text-sm font-semibold text-foreground">رمز عبور</Label>
           <Input
             id="password"
             name="password"
@@ -93,23 +94,35 @@ export const LoginPage = () => {
             placeholder="رمز عبور خود را وارد کنید"
             required
             autoComplete="current-password"
+            className="h-12 text-base border-2 focus:border-primary transition-colors"
           />
         </div>
-        <Button className="w-full" type="submit" disabled={loading}>
-          {loading ? 'در حال ورود…' : 'ورود'}
+        <Button 
+          className="w-full h-12 text-base font-semibold bg-gradient-primary hover:opacity-90 shadow-lg shadow-primary/20 transition-all" 
+          type="submit" 
+          disabled={loading}
+        >
+          {loading ? 'در حال ورود…' : 'ورود به سامانه'}
         </Button>
-        <div className="text-center text-sm">
-          <p>
-            حساب کاربری ندارید؟{' '}
-            <Link className="text-primary underline" to="/register/company">
-              ثبت‌نام شرکت
-            </Link>{' '}
-            کنید یا{' '}
-            <Link className="text-primary underline" to="/register/merchant">
-              ثبت‌نام پذیرنده
-            </Link>{' '}
-            انجام دهید.
+        <div className="text-center text-sm space-y-2 pt-4 border-t border-border">
+          <p className="text-muted-foreground">
+            حساب کاربری ندارید؟
           </p>
+          <div className="flex gap-4 justify-center">
+            <Link 
+              className="text-primary font-semibold hover:underline transition-colors" 
+              to="/register/company"
+            >
+              ثبت‌نام شرکت
+            </Link>
+            <span className="text-muted-foreground">|</span>
+            <Link 
+              className="text-primary font-semibold hover:underline transition-colors" 
+              to="/register/merchant"
+            >
+              ثبت‌نام پذیرنده
+            </Link>
+          </div>
         </div>
       </form>
     </AuthLayout>

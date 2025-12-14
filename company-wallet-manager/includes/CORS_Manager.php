@@ -124,6 +124,22 @@ class CORS_Manager {
                         $this->normalize_origin( site_url() ),
                 );
 
+                // Add panel subdomain if main domain is configured
+                $site_url = site_url();
+                $parsed = wp_parse_url( $site_url );
+                if ( ! empty( $parsed['host'] ) ) {
+                        $host = $parsed['host'];
+                        // If main domain is like mr.vandapay.com, add panel.vandapay.com
+                        if ( strpos( $host, 'mr.' ) === 0 ) {
+                                $panel_host = str_replace( 'mr.', 'panel.', $host );
+                                $panel_url = $parsed['scheme'] . '://' . $panel_host;
+                                if ( ! empty( $parsed['port'] ) ) {
+                                        $panel_url .= ':' . $parsed['port'];
+                                }
+                                $defaults[] = $this->normalize_origin( $panel_url );
+                        }
+                }
+
                 $configured = array();
 
                 if ( defined( 'CWM_ALLOWED_CORS_ORIGINS' ) ) {
@@ -184,7 +200,7 @@ class CORS_Manager {
                 header( 'Access-Control-Allow-Origin: ' . esc_url_raw( $origin ) );
                 header( 'Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS' );
                 header( 'Access-Control-Allow-Credentials: true' );
-                header( 'Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce' );
+                header( 'Access-Control-Allow-Headers: Authorization, Content-Type, X-WP-Nonce, Content-Disposition' );
                 header( 'Vary: Origin' );
         }
 

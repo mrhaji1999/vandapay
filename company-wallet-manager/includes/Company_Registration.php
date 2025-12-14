@@ -231,6 +231,8 @@ class Company_Registration {
         private function create_company_post( $user_id, $company_type, array $data ) {
                 $title = 'legal' === $company_type ? $data['company_name'] : $data['full_name'];
 
+                $credit_amount = isset( $data['credit_amount'] ) ? floatval( $data['credit_amount'] ) : 0;
+
                 $post_id = wp_insert_post(
                         [
                                 'post_type'   => 'cwm_company',
@@ -240,12 +242,19 @@ class Company_Registration {
                                         '_cwm_company_user_id' => $user_id,
                                         '_cwm_company_type'    => $company_type,
                                         '_cwm_company_phone'   => ! empty( $data['company_phone'] ) ? $data['company_phone'] : $data['phone'],
-                                        '_cwm_company_email'   => ! empty( $data['company_email'] ) ? $data['company_email'] : $data['email'],
+                                        '_cwm_company_email'   => ! empty( $data['company_email'] ) ? $data['email'] : $data['email'],
                                         '_cwm_company_economic_code' => $data['economic_code'],
                                         '_cwm_company_national_id'   => $data['national_id'],
+                                        '_cwm_company_credit'   => $credit_amount,
                                 ],
                         ]
                 );
+
+                // If credit amount is provided, add it to company's wallet
+                if ( $credit_amount > 0 ) {
+                        $wallet_system = new Wallet_System();
+                        $wallet_system->update_balance( $user_id, $credit_amount );
+                }
 
                 return (int) $post_id;
         }

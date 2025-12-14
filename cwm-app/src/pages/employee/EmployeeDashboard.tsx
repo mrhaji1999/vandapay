@@ -1,19 +1,28 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { DashboardLayout } from '../../components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { CreditCard as CreditCardComponent } from '../../components/common/CreditCard';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Select } from '../../components/ui/select';
 import { Label } from '../../components/ui/label';
 import { apiClient } from '../../api/client';
+import { useAuth } from '../../store/auth';
 import { unwrapWordPressList, unwrapWordPressObject } from '../../api/wordpress';
 import { formatDateTime } from '../../utils/format';
 import { cn } from '../../utils/cn';
 import * as Dialog from '@radix-ui/react-dialog';
 import { iranProvinces, getCitiesByProvinceId } from '../../lib/iran-cities';
+import {
+  LayoutDashboard,
+  Store,
+  ShoppingCart,
+  Wallet,
+  Package
+} from 'lucide-react';
 
 interface Transaction {
   id: number;
@@ -65,6 +74,7 @@ interface Product {
   category_name?: string;
   stock_quantity?: number;
   online_purchase_enabled?: boolean;
+  is_featured?: boolean;
 }
 
 interface CartItem {
@@ -114,6 +124,7 @@ interface OrderItem {
 type TabType = 'dashboard' | 'stores' | 'cart' | 'orders' | 'checkout';
 
 export const EmployeeDashboard = () => {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [selectedStore, setSelectedStore] = useState<Merchant | null>(null);
@@ -234,20 +245,71 @@ export const EmployeeDashboard = () => {
     enabled: activeTab === 'stores' && productSearchQuery.length > 0
   });
 
-  const { data: storeProducts = [] } = useQuery<Product[]>({
+  const { data: storeProducts = [], isLoading: isLoadingStoreProducts, error: storeProductsError } = useQuery<Product[]>({
     queryKey: ['employee', 'store-products', selectedStore?.id],
     queryFn: async () => {
       if (!selectedStore) return [];
-      const response = await apiClient.get(`/employee/merchants/${selectedStore.id}/products`);
-      return unwrapWordPressList<Record<string, unknown>>(response.data).map((product) => ({
-        id: Number(product.id ?? 0),
-        name: String(product.name ?? ''),
-        description: product.description ? String(product.description) : undefined,
-        image: product.image ? String(product.image) : undefined,
-        price: product.price ? Number(product.price) : undefined
-      }));
+      try {
+        const response = await apiClient.get(`/employee/merchants/${selectedStore.id}/products`);
+        console.log('Store Products API Response:', response.data);
+        
+        // Check if response.data exists
+        if (!response.data) {
+          console.error('No data in store products response');
+          return [];
+        }
+        
+        // Try to unwrap the data
+        const products = unwrapWordPressList<Record<string, unknown>>(response.data);
+        console.log('Unwrapped store products:', products);
+        
+        // If products is empty but response has data, log it
+        if (products.length === 0 && response.data) {
+          console.warn('Store products array is empty but response has data:', response.data);
+          
+          // Try to extract data directly if unwrapWordPressList didn't work
+          if (response.data && typeof response.data === 'object' && 'data' in response.data) {
+            const directData = (response.data as any).data;
+            if (Array.isArray(directData)) {
+              console.log('Found store products in response.data.data:', directData);
+              return directData.map((product: any) => ({
+                id: Number(product.id ?? 0),
+                name: String(product.name ?? ''),
+                description: product.description ? String(product.description) : undefined,
+                image: product.image ? String(product.image) : undefined,
+                price: product.price ? Number(product.price) : undefined,
+                online_purchase_enabled: product.online_purchase_enabled !== undefined ? Boolean(product.online_purchase_enabled) : true,
+                stock_quantity: product.stock_quantity ? Number(product.stock_quantity) : undefined
+              }));
+            }
+          }
+        }
+        
+        const mappedProducts = products.map((product) => ({
+          id: Number(product.id ?? 0),
+          name: String(product.name ?? ''),
+          description: product.description ? String(product.description) : undefined,
+          image: product.image ? String(product.image) : undefined,
+          price: product.price ? Number(product.price) : undefined,
+          online_purchase_enabled: product.online_purchase_enabled !== undefined ? Boolean(product.online_purchase_enabled) : true,
+          stock_quantity: product.stock_quantity ? Number(product.stock_quantity) : undefined
+        }));
+        
+        console.log('Mapped store products with online_purchase_enabled:', mappedProducts.map(p => ({
+          id: p.id,
+          name: p.name,
+          online_purchase_enabled: p.online_purchase_enabled
+        })));
+        
+        return mappedProducts;
+      } catch (error) {
+        console.error('Error fetching store products:', error);
+        throw error;
+      }
     },
-    enabled: Boolean(selectedStore)
+    enabled: Boolean(selectedStore),
+    refetchOnMount: true,
+    retry: 2
   });
 
   // Online products query
@@ -255,20 +317,102 @@ export const EmployeeDashboard = () => {
     queryKey: ['employee', 'products', 'online'],
     queryFn: async () => {
       const response = await apiClient.get('/employee/products/online');
-      return unwrapWordPressList<Product>(response.data);
+      return unwrapWordPressList<Product>(response.data).map((product) => ({
+        ...product,
+        product_category_id: product.product_category_id ?? undefined,
+        category_name: product.category_name ?? undefined,
+        is_featured: product.is_featured ?? false
+      }));
     },
-    enabled: activeTab === 'stores'
+    enabled: activeTab === 'dashboard' || activeTab === 'stores'
   });
 
-  // Cart query
-  const { data: cartItems = [] } = useQuery<CartItem[]>({
+  // Group products by category
+  const productsByCategory = useMemo(() => {
+    const grouped: Record<number, { category_name: string; products: Product[] }> = {};
+    onlineProducts.forEach((product) => {
+      if (product.product_category_id && product.category_name) {
+        if (!grouped[product.product_category_id]) {
+          grouped[product.product_category_id] = {
+            category_name: product.category_name,
+            products: []
+          };
+        }
+        grouped[product.product_category_id].products.push(product);
+      }
+    });
+    return grouped;
+  }, [onlineProducts]);
+
+  // Cart query - always enabled to show cart count
+  const { data: cartItems = [], isLoading: isLoadingCart, error: cartError } = useQuery<CartItem[]>({
     queryKey: ['employee', 'cart'],
     queryFn: async () => {
       const response = await apiClient.get('/cart');
-      return unwrapWordPressList<CartItem>(response.data);
+      console.log('Cart API Response:', response.data);
+      
+      // Check if response.data exists
+      if (!response.data) {
+        console.error('No data in cart response');
+        return [];
+      }
+      
+      // Try to unwrap the data
+      const items = unwrapWordPressList<CartItem>(response.data);
+      console.log('Unwrapped cart items:', items);
+      
+      // If items is empty but response has data, try direct extraction
+      if (items.length === 0 && response.data && typeof response.data === 'object' && 'data' in response.data) {
+        const directData = (response.data as any).data;
+        if (Array.isArray(directData)) {
+          console.log('Found cart items in response.data.data:', directData);
+          return directData.map((item: any) => ({
+            id: Number(item.id ?? 0),
+            product_id: Number(item.product_id ?? 0),
+            quantity: Number(item.quantity ?? 0),
+            product_name: String(item.product_name ?? ''),
+            price: Number(item.price ?? 0),
+            subtotal: Number(item.subtotal ?? (item.price && item.quantity ? item.price * item.quantity : 0)),
+            image: item.image ? String(item.image) : undefined,
+            stock_quantity: Number(item.stock_quantity ?? 0),
+            merchant_id: Number(item.merchant_id ?? 0),
+            store_name: String(item.store_name ?? ''),
+            product_category_id: item.product_category_id ? Number(item.product_category_id) : undefined,
+            category_name: item.category_name ? String(item.category_name) : undefined
+          }));
+        }
+      }
+      
+      return items;
     },
-    enabled: activeTab === 'cart'
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    retry: 2
   });
+  
+  // Log cart state for debugging
+  useEffect(() => {
+    console.log('=== Cart Debug Info ===');
+    console.log('Cart Items State:', cartItems);
+    console.log('Cart Items Count:', cartItems.length);
+    console.log('Cart Loading:', isLoadingCart);
+    console.log('Cart Error:', cartError);
+    console.log('======================');
+  }, [cartItems, isLoadingCart, cartError]);
+  
+  // Additional debug: log when cart query refetches
+  useEffect(() => {
+    if (!isLoadingCart && cartItems.length === 0) {
+      console.warn('⚠️ Cart is empty but not loading. This might indicate a problem.');
+      console.log('Please check:');
+      console.log('1. Is the API returning data?');
+      console.log('2. Is unwrapWordPressList working correctly?');
+      console.log('3. Are there items in the database?');
+    }
+  }, [isLoadingCart, cartItems.length]);
+  
+  // Cart modal state
+  const [cartModalOpen, setCartModalOpen] = useState(false);
 
   // Orders query
   const { data: orders = [] } = useQuery<Order[]>({
@@ -287,13 +431,30 @@ export const EmployeeDashboard = () => {
   // Cart Mutations
   const addToCartMutation = useMutation({
     mutationFn: async ({ product_id, quantity }: { product_id: number; quantity: number }) => {
-      await apiClient.post('/cart/add', { product_id, quantity });
+      console.log('=== Add to Cart Mutation ===');
+      console.log('Product ID:', product_id);
+      console.log('Quantity:', quantity);
+      
+      const response = await apiClient.post('/cart/add', { product_id, quantity });
+      console.log('Add to Cart API Response:', response.data);
+      
+      return response;
     },
-    onSuccess: () => {
+    onSuccess: (response) => {
+      console.log('Add to Cart Success:', response.data);
       toast.success('محصول به سبد خرید اضافه شد.');
+      
+      // Invalidate and refetch immediately
       queryClient.invalidateQueries({ queryKey: ['employee', 'cart'] });
+      
+      // Also refetch after a short delay to ensure data is available
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['employee', 'cart'] });
+      }, 500);
     },
     onError: (error: any) => {
+      console.error('Add to Cart Error:', error);
+      console.error('Error Response:', error?.response?.data);
       const message = error?.response?.data?.message ?? 'افزودن به سبد خرید با خطا مواجه شد.';
       toast.error(message);
     }
@@ -309,6 +470,21 @@ export const EmployeeDashboard = () => {
     },
     onError: (error: any) => {
       const message = error?.response?.data?.message ?? 'حذف از سبد خرید با خطا مواجه شد.';
+      toast.error(message);
+    }
+  });
+
+  const clearCartMutation = useMutation({
+    mutationFn: async () => {
+      await apiClient.delete('/cart/clear');
+    },
+    onSuccess: () => {
+      toast.success('سبد خرید خالی شد.');
+      queryClient.invalidateQueries({ queryKey: ['employee', 'cart'] });
+      setCartModalOpen(false);
+    },
+    onError: (error: any) => {
+      const message = error?.response?.data?.message ?? 'خالی کردن سبد خرید با خطا مواجه شد.';
       toast.error(message);
     }
   });
@@ -353,65 +529,85 @@ export const EmployeeDashboard = () => {
   });
 
   const tabs = [
-    { id: 'dashboard' as TabType, label: 'داشبورد', icon: '📊' },
-    { id: 'stores' as TabType, label: 'فروشگاه‌ها', icon: '🏪' },
-    { id: 'cart' as TabType, label: 'سبد خرید', icon: '🛒' },
-    { id: 'orders' as TabType, label: 'سفارشات من', icon: '📦' }
+    { id: 'dashboard' as TabType, label: 'داشبورد', icon: LayoutDashboard },
+    { id: 'stores' as TabType, label: 'فروشگاه‌ها', icon: Store },
+    { id: 'cart' as TabType, label: 'سبد خرید', icon: ShoppingCart },
+    { id: 'orders' as TabType, label: 'سفارشات من', icon: Package }
   ];
 
   return (
-    <DashboardLayout>
+    <DashboardLayout
+      sidebarTabs={tabs}
+      activeTab={activeTab}
+      onTabChange={(tabId) => {
+        setActiveTab(tabId as TabType);
+        if (tabId === 'dashboard') {
+          setSelectedStore(null);
+        }
+      }}
+    >
       <div className={cn('min-h-screen transition-colors', darkMode ? 'dark bg-slate-900' : 'bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50')}>
         {/* Header with Dark Mode Toggle */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 p-4 text-white shadow-lg">
-              <p className="text-sm font-medium">موجودی کیف پول</p>
-              <p className="text-3xl font-bold">{categoryBalances?.walletBalance ?? 0}</p>
+        <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <Card className="border-0 bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/20 p-6">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 sm:h-16 sm:w-16 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
+                <Wallet className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
+              </div>
+              <div>
+                <p className="text-xs sm:text-sm font-medium text-white/90">موجودی کیف پول</p>
+                <p className="text-2xl sm:text-4xl font-bold text-white">{categoryBalances?.walletBalance ?? 0}</p>
+              </div>
             </div>
-          </div>
-          <Button
-            variant="outline"
-            onClick={toggleDarkMode}
-            className="rounded-full"
-          >
-            {darkMode ? '☀️' : '🌙'}
-          </Button>
-        </div>
-
-        {/* Tabs */}
-        <div className="mb-6 flex gap-2 overflow-x-auto border-b border-slate-200 dark:border-slate-700">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id);
-                if (tab.id === 'dashboard') {
-                  setSelectedStore(null);
-                }
-              }}
-              className={cn(
-                'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 font-semibold transition-colors',
-                activeTab === tab.id
-                  ? 'border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400'
-                  : 'border-transparent text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-              )}
+          </Card>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setCartModalOpen(true)}
+              className="relative rounded-xl h-12 px-4 shadow-sm"
             >
-              <span>{tab.icon}</span>
-              <span>{tab.label}</span>
-            </button>
-          ))}
+              <ShoppingCart className="h-5 w-5 ml-2" />
+              <span>سبد خرید</span>
+              {cartItems.length > 0 && (
+                <span className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white">
+                  {cartItems.length > 99 ? '99+' : cartItems.length}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={toggleDarkMode}
+              className="rounded-xl h-12 w-12 shadow-sm"
+            >
+              {darkMode ? '☀️' : '🌙'}
+            </Button>
+          </div>
         </div>
 
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
+            {/* Credit Card */}
+            <section className="mb-6">
+              <div className="w-full md:w-1/3">
+                <CreditCardComponent
+                  balance={categoryBalances?.walletBalance ?? 0}
+                  cardHolderName={user?.name || 'کارمند'}
+                  phoneNumber={undefined}
+                />
+              </div>
+            </section>
+
             <section className="mt-6 space-y-4">
-              <h2 className="text-xl font-bold">سقف استفاده از دسته‌بندی‌ها</h2>
+              <Card className="border-0 shadow-elevated mb-4">
+                <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10">
+                  <CardTitle className="text-xl">سقف استفاده از دسته‌بندی‌ها</CardTitle>
+                </CardHeader>
+              </Card>
               {categoryBalances && categoryBalances.categories.length > 0 ? (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {categoryBalances.categories.map((category) => (
-                    <Card key={category.category_id} className={cn('shadow-lg', darkMode ? 'bg-slate-800' : 'bg-white')}>
+                    <Card key={category.category_id} className={cn('border-0 shadow-elevated', darkMode ? 'bg-slate-800' : 'bg-card')}>
                       <CardHeader>
                         <CardTitle className="text-base font-medium">{category.category_name}</CardTitle>
                       </CardHeader>
@@ -438,9 +634,99 @@ export const EmployeeDashboard = () => {
               )}
             </section>
 
+            {/* Products by Category Carousels */}
+            {Object.keys(productsByCategory).length > 0 && (
+              <section className="space-y-6">
+                {Object.entries(productsByCategory).map(([categoryId, { category_name, products }]) => {
+                  const carouselRef = useRef<HTMLDivElement>(null);
+                  const scrollLeft = () => {
+                    if (carouselRef.current) {
+                      carouselRef.current.scrollBy({ left: -300, behavior: 'smooth' });
+                    }
+                  };
+                  const scrollRight = () => {
+                    if (carouselRef.current) {
+                      carouselRef.current.scrollBy({ left: 300, behavior: 'smooth' });
+                    }
+                  };
+
+                  return (
+                    <Card key={categoryId} className={cn('border border-gray-200 bg-white shadow-sm', darkMode && 'bg-slate-800 border-slate-700')}>
+                      <CardHeader className="border-b border-gray-200 pb-4">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">{category_name}</CardTitle>
+                          <div className="flex gap-2 w-full sm:w-auto">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={scrollLeft}
+                              className="h-8 w-8 p-0"
+                            >
+                              ←
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={scrollRight}
+                              className="h-8 w-8 p-0"
+                            >
+                              →
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-6">
+                        <div
+                          ref={carouselRef}
+                          className="flex gap-4 overflow-x-auto pb-4 scroll-smooth scrollbar-hide"
+                        >
+                          {products.map((product) => (
+                            <div
+                              key={product.id}
+                              className={cn(
+                                'flex-shrink-0 w-64 sm:w-72 md:w-80 rounded-lg border border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow cursor-pointer',
+                                darkMode && 'bg-slate-700 border-slate-600'
+                              )}
+                              onClick={() => setSelectedProduct(product)}
+                            >
+                              {product.image && (
+                                <img
+                                  src={product.image}
+                                  alt={product.name}
+                                  className="w-full h-40 object-cover rounded-t-lg"
+                                />
+                              )}
+                              <div className="p-4">
+                                <h4 className="font-semibold text-gray-900 dark:text-white mb-1">{product.name}</h4>
+                                {product.store_name && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{product.store_name}</p>
+                                )}
+                                {product.price && (
+                                  <p className={cn('text-lg font-bold', darkMode ? 'text-emerald-400' : 'text-emerald-600')}>
+                                    {product.price.toLocaleString()} تومان
+                                  </p>
+                                )}
+                                {product.is_featured && (
+                                  <span className="inline-block mt-2 px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded dark:bg-yellow-900 dark:text-yellow-200">
+                                    ویژه
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </section>
+            )}
+
             <section>
-              <h2 className="mb-4 text-xl font-bold">تاریخچه تراکنش‌ها</h2>
-              <Card className={cn('shadow-lg', darkMode ? 'bg-slate-800' : 'bg-white')}>
+              <Card className={cn('border-0 shadow-elevated', darkMode ? 'bg-slate-800' : 'bg-card')}>
+                <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10">
+                  <CardTitle className="text-xl">تاریخچه تراکنش‌ها</CardTitle>
+                </CardHeader>
                 <CardContent className="p-0">
                   <Table>
                     <TableHeader>
@@ -590,7 +876,7 @@ export const EmployeeDashboard = () => {
                           />
                         ) : (
                           <div className={cn('flex h-20 w-20 items-center justify-center rounded-lg text-3xl', darkMode ? 'bg-slate-700' : 'bg-slate-200')}>
-                            🏪
+                            <Store className="h-6 w-6" />
                           </div>
                         )}
                         <div className="flex-1">
@@ -629,8 +915,8 @@ export const EmployeeDashboard = () => {
                           className="h-48 w-full rounded-lg object-cover md:w-48"
                         />
                       ) : (
-                        <div className={cn('flex h-48 w-full items-center justify-center rounded-lg text-6xl md:w-48', darkMode ? 'bg-slate-700' : 'bg-slate-200')}>
-                          🏪
+                        <div className={cn('flex h-48 w-full items-center justify-center rounded-lg md:w-48', darkMode ? 'bg-slate-700' : 'bg-slate-200')}>
+                          <Store className="h-16 w-16 text-foreground" />
                         </div>
                       )}
                       <div className="flex-1">
@@ -690,8 +976,8 @@ export const EmployeeDashboard = () => {
                               className="mb-4 h-48 w-full rounded-lg object-cover"
                             />
                           ) : (
-                            <div className={cn('mb-4 flex h-48 w-full items-center justify-center rounded-lg text-4xl', darkMode ? 'bg-slate-700' : 'bg-slate-200')}>
-                              📦
+                            <div className={cn('mb-4 flex h-48 w-full items-center justify-center rounded-lg', darkMode ? 'bg-slate-700' : 'bg-slate-200')}>
+                              <Package className="h-16 w-16 text-foreground" />
                             </div>
                           )}
                           <h3 className="text-lg font-bold">{product.name}</h3>
@@ -700,17 +986,37 @@ export const EmployeeDashboard = () => {
                               {product.price.toLocaleString()} تومان
                             </p>
                           )}
-                          {product.online_purchase_enabled && (
-                            <Button
-                              className="mt-4 w-full"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                addToCartMutation.mutate({ product_id: product.id, quantity: 1 });
-                              }}
-                              disabled={addToCartMutation.isPending}
-                            >
-                              افزودن به سبد خرید
-                            </Button>
+                          {(product.online_purchase_enabled !== false) && (
+                            <div className="mt-4 flex gap-2 items-center">
+                              <div className="flex-1">
+                                <Label htmlFor={`quantity-${product.id}`} className="text-xs mb-1 block">تعداد</Label>
+                                <Input
+                                  id={`quantity-${product.id}`}
+                                  type="number"
+                                  min="1"
+                                  max={product.stock_quantity || 999}
+                                  defaultValue={1}
+                                  className="w-full"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => e.stopPropagation()}
+                                  onFocus={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                              <Button
+                                className="flex-1 mt-6"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const quantityInput = document.getElementById(`quantity-${product.id}`) as HTMLInputElement;
+                                  const quantity = quantityInput ? parseInt(quantityInput.value) || 1 : 1;
+                                  const maxQuantity = product.stock_quantity || 999;
+                                  const finalQuantity = Math.min(Math.max(1, quantity), maxQuantity);
+                                  addToCartMutation.mutate({ product_id: product.id, quantity: finalQuantity });
+                                }}
+                                disabled={addToCartMutation.isPending}
+                              >
+                                افزودن به سبد خرید
+                              </Button>
+                            </div>
                           )}
                         </CardContent>
                       </Card>
@@ -998,6 +1304,9 @@ export const EmployeeDashboard = () => {
               {selectedProduct && (
                 <>
                   <Dialog.Title className="text-2xl font-bold">{selectedProduct.name}</Dialog.Title>
+                  <Dialog.Description className="sr-only">
+                    جزئیات محصول {selectedProduct.name}
+                  </Dialog.Description>
                   {selectedProduct.image && (
                     <img
                       src={selectedProduct.image}
@@ -1006,9 +1315,9 @@ export const EmployeeDashboard = () => {
                     />
                   )}
                   {selectedProduct.description && (
-                    <Dialog.Description className={cn('mt-4 text-base', darkMode ? 'text-slate-300' : 'text-slate-600')}>
+                    <p className={cn('mt-4 text-base', darkMode ? 'text-slate-300' : 'text-slate-600')}>
                       {selectedProduct.description}
-                    </Dialog.Description>
+                    </p>
                   )}
                   {selectedProduct.price && (
                     <p className={cn('mt-4 text-2xl font-bold', darkMode ? 'text-emerald-400' : 'text-emerald-600')}>
@@ -1021,6 +1330,168 @@ export const EmployeeDashboard = () => {
                     </Dialog.Close>
                   </div>
                 </>
+              )}
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+
+        {/* Cart Modal */}
+        <Dialog.Root open={cartModalOpen} onOpenChange={setCartModalOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" />
+            <Dialog.Content
+              className={cn(
+                'fixed left-1/2 top-1/2 z-50 w-[95vw] max-w-3xl max-h-[90vh] -translate-x-1/2 -translate-y-1/2 rounded-2xl border shadow-2xl overflow-hidden flex flex-col',
+                darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
+              )}
+            >
+              <div className="p-6 border-b flex items-center justify-between">
+                <div>
+                  <Dialog.Title className="text-2xl font-bold flex items-center gap-3">
+                    <ShoppingCart className="h-6 w-6" />
+                    سبد خرید
+                    {cartItems.length > 0 && (
+                      <span className={cn('text-sm font-normal px-3 py-1 rounded-full', darkMode ? 'bg-slate-700 text-slate-300' : 'bg-slate-100 text-slate-700')}>
+                        {cartItems.length} آیتم
+                      </span>
+                    )}
+                  </Dialog.Title>
+                  <Dialog.Description className="sr-only">
+                    لیست محصولات سبد خرید شما
+                  </Dialog.Description>
+                </div>
+                <Dialog.Close asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <span className="text-xl">×</span>
+                  </Button>
+                </Dialog.Close>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6">
+                {cartItems.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <ShoppingCart className={cn('h-16 w-16 mb-4', darkMode ? 'text-slate-600' : 'text-slate-300')} />
+                    <p className={cn('text-lg font-semibold mb-2', darkMode ? 'text-slate-300' : 'text-slate-700')}>
+                      سبد خرید شما خالی است
+                    </p>
+                    <p className={cn('text-sm', darkMode ? 'text-slate-500' : 'text-slate-500')}>
+                      محصولات مورد نظر خود را به سبد خرید اضافه کنید
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {cartItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className={cn(
+                          'flex items-center gap-4 p-4 rounded-xl border transition-all',
+                          darkMode ? 'bg-slate-700/50 border-slate-600 hover:bg-slate-700' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                        )}
+                      >
+                        {item.image && (
+                          <img
+                            src={item.image}
+                            alt={item.product_name}
+                            className="h-20 w-20 rounded-lg object-cover flex-shrink-0"
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-lg truncate">{item.product_name}</h4>
+                          <p className={cn('text-sm mt-1', darkMode ? 'text-slate-400' : 'text-slate-600')}>
+                            فروشگاه: {item.store_name}
+                          </p>
+                          <p className={cn('text-lg font-semibold mt-2', darkMode ? 'text-emerald-400' : 'text-emerald-600')}>
+                            {item.price.toLocaleString()} تومان
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              onClick={() => {
+                                if (item.quantity > 1) {
+                                  updateCartItemMutation.mutate({ id: item.id, quantity: item.quantity - 1 });
+                                } else {
+                                  removeFromCartMutation.mutate(item.id);
+                                }
+                              }}
+                              disabled={updateCartItemMutation.isPending || removeFromCartMutation.isPending}
+                            >
+                              −
+                            </Button>
+                            <span className={cn('min-w-[3rem] text-center font-semibold', darkMode ? 'text-slate-200' : 'text-slate-800')}>
+                              {item.quantity}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              onClick={() => {
+                                if (item.quantity < item.stock_quantity) {
+                                  updateCartItemMutation.mutate({ id: item.id, quantity: item.quantity + 1 });
+                                } else {
+                                  toast.error(`موجودی محصول ${item.stock_quantity} عدد است.`);
+                                }
+                              }}
+                              disabled={updateCartItemMutation.isPending || item.quantity >= item.stock_quantity}
+                            >
+                              +
+                            </Button>
+                          </div>
+                          <p className={cn('text-sm font-semibold', darkMode ? 'text-slate-300' : 'text-slate-700')}>
+                            مجموع: {item.subtotal.toLocaleString()} تومان
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => removeFromCartMutation.mutate(item.id)}
+                            disabled={removeFromCartMutation.isPending}
+                          >
+                            حذف
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {cartItems.length > 0 && (
+                <div className={cn('p-6 border-t space-y-4', darkMode ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200')}>
+                  <div className="flex items-center justify-between text-lg font-bold">
+                    <span className={darkMode ? 'text-slate-300' : 'text-slate-700'}>مجموع کل:</span>
+                    <span className={cn('text-2xl', darkMode ? 'text-emerald-400' : 'text-emerald-600')}>
+                      {cartItems.reduce((sum, item) => sum + item.subtotal, 0).toLocaleString()} تومان
+                    </span>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        if (confirm('آیا مطمئن هستید که می‌خواهید سبد خرید را خالی کنید؟')) {
+                          clearCartMutation.mutate();
+                        }
+                      }}
+                      disabled={clearCartMutation.isPending}
+                    >
+                      {clearCartMutation.isPending ? 'در حال حذف...' : 'خالی کردن سبد خرید'}
+                    </Button>
+                    <Button
+                      className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+                      onClick={() => {
+                        setCartModalOpen(false);
+                        setActiveTab('checkout');
+                      }}
+                      disabled={cartItems.length === 0}
+                    >
+                      تسویه حساب
+                    </Button>
+                  </div>
+                </div>
               )}
             </Dialog.Content>
           </Dialog.Portal>

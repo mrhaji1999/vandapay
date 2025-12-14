@@ -63,12 +63,16 @@ export const RegisterCompanyPage = () => {
 
   return (
     <AuthLayout>
-      <div className="mb-4 flex items-center justify-center gap-2 rounded-md bg-secondary p-1">
+      <div className="mb-6 flex items-center justify-center gap-2 rounded-xl bg-secondary p-1.5 border border-border">
         <Button
           type="button"
           variant={companyType === 'legal' ? 'default' : 'ghost'}
           onClick={() => setCompanyType('legal')}
-          className="w-full"
+          className={`w-full h-11 transition-all ${
+            companyType === 'legal' 
+              ? 'bg-gradient-primary shadow-lg shadow-primary/20' 
+              : 'hover:bg-muted'
+          }`}
         >
           شخص حقوقی
         </Button>
@@ -76,26 +80,35 @@ export const RegisterCompanyPage = () => {
           type="button"
           variant={companyType === 'real' ? 'default' : 'ghost'}
           onClick={() => setCompanyType('real')}
-          className="w-full"
+          className={`w-full h-11 transition-all ${
+            companyType === 'real' 
+              ? 'bg-gradient-primary shadow-lg shadow-primary/20' 
+              : 'hover:bg-muted'
+          }`}
         >
           شخص حقیقی
         </Button>
       </div>
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      <form className="space-y-5" onSubmit={handleSubmit}>
         {fields.map((field) => (
           <div key={field.name} className="space-y-2">
-            <Label htmlFor={field.name}>{field.label}</Label>
+            <Label htmlFor={field.name} className="text-sm font-semibold text-foreground">{field.label}</Label>
             <Input
               id={field.name}
               name={field.name}
               type={field.type ?? 'text'}
               defaultValue={formState[field.name] ?? ''}
               required
+              className="h-12 text-base border-2 focus:border-primary transition-colors"
             />
           </div>
         ))}
-        <Button className="w-full" type="submit" disabled={loading}>
-          {loading ? 'در حال ارسال…' : 'ارسال'}
+        <Button 
+          className="w-full h-12 text-base font-semibold bg-gradient-primary hover:opacity-90 shadow-lg shadow-primary/20 transition-all mt-6" 
+          type="submit" 
+          disabled={loading}
+        >
+          {loading ? 'در حال ارسال…' : 'ثبت درخواست'}
         </Button>
       </form>
     </AuthLayout>
